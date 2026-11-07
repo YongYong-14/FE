@@ -170,6 +170,25 @@ export function ParkingDemoPanel() {
             { value: 'fail-once', label: '실패 1회' },
           ]}
         />
+        <Segmented
+          title="주변 주차장"
+          value={scenario.parkingLots}
+          onChange={(parkingLots) => set({ parkingLots })}
+          options={[
+            { value: 'normal', label: '정상' },
+            { value: 'far-only', label: '500m 안 없음' },
+            { value: 'none', label: '1km 안 없음' },
+          ]}
+        />
+        <Segmented
+          title="장소 검색"
+          value={scenario.placeSearch}
+          onChange={(placeSearch) => set({ placeSearch })}
+          options={[
+            { value: 'normal', label: '정상' },
+            { value: 'fail-once', label: '실패 1회' },
+          ]}
+        />
       </Section>
 
       <Section title="데모 권한·블루투스">
@@ -178,6 +197,7 @@ export function ParkingDemoPanel() {
           value={device.locationPermission}
           onChange={(locationPermission) => void updateDevice({ locationPermission })}
           options={[
+            { value: 'unset', label: '미설정' },
             { value: 'always', label: '항상 허용' },
             { value: 'foreground', label: '사용 중에만' },
             { value: 'denied', label: '거부' },
@@ -188,6 +208,7 @@ export function ParkingDemoPanel() {
           value={device.bluetoothPermission}
           onChange={(bluetoothPermission) => void updateDevice({ bluetoothPermission })}
           options={[
+            { value: 'unset', label: '미설정' },
             { value: 'granted', label: '허용' },
             { value: 'denied', label: '거부' },
           ]}
