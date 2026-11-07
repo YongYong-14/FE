@@ -1,0 +1,40 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main, dev, onjunku, ummpa]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Match npm version
+        run: npm install --global npm@11.19.0
+      - name: Check PR target
+        run: node scripts/check-pr-target.mjs
+      - run: npm ci
+      - run: npm run check
+      - name: Check Expo package compatibility
+        run: npx expo install --check
+      - name: Bundle Android JavaScript
+        run: npm run export:android

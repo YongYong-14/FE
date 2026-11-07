@@ -1,0 +1,33 @@
+# Dependencies and Expo generated state
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.tsbuildinfo
+
+# Generated native projects (Expo CNG)
+/android/
+/ios/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+local.properties
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+
+# Logs and OS files
+*.log
+npm-debug.*
+.DS_Store
+Thumbs.db
+.idea/
+
+# Build and test output
+coverage/
+artifacts/

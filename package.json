@@ -1,0 +1,56 @@
+{
+  "name": "seulkkamalkka",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "packageManager": "npm@11.19.0",
+  "engines": {
+    "node": ">=24.21.0 <25",
+    "npm": ">=11.19.0 <12"
+  },
+  "scripts": {
+    "start": "expo start --dev-client",
+    "start:clear": "expo start --dev-client --clear",
+    "android": "expo run:android",
+    "android:device": "expo run:android --device",
+    "prebuild:android": "expo prebuild --platform android",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "export:android": "expo export --platform android",
+    "doctor": "expo-doctor",
+    "check:pr": "node scripts/check-pr-target.mjs"
+  },
+  "dependencies": {
+    "@expo-google-fonts/noto-sans-kr": "0.4.4",
+    "@expo/vector-icons": "15.1.1",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "58.0.23",
+    "expo-constants": "58.0.15",
+    "expo-dev-client": "58.0.18",
+    "expo-font": "58.0.11",
+    "expo-linking": "58.0.16",
+    "expo-router": "58.0.30",
+    "expo-splash-screen": "58.0.13",
+    "expo-status-bar": "58.0.4",
+    "expo-system-ui": "58.0.7",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-native": "0.88.1",
+    "react-native-safe-area-context": "5.11.1",
+    "react-native-screens": "4.30.1",
+    "react-native-web": "0.21.4"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-expo": "58.0.4",
+    "eslint-config-prettier": "10.1.8",
+    "expo-doctor": "1.21.6",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3"
+  }
+}
