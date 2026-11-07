@@ -1,15 +1,16 @@
 import { Stack } from 'expo-router';
 
+import { ParkingTouchGuard } from '@/features/parking';
 import { SurveyHost } from '@/features/survey';
 import { colors } from '@/shared/theme/tokens';
 
 export default function MainLayout() {
   return (
-    <>
+    <ParkingTouchGuard>
       <MainStack />
       {/* 재탑승 사후 설문은 화면과 무관하게 한 곳에서만 띄운다. */}
       <SurveyHost />
-    </>
+    </ParkingTouchGuard>
   );
 }
 

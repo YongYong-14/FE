@@ -1,13 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef } from 'react';
-import {
-  ActivityIndicator,
-  BackHandler,
-  ScrollView,
-  StyleSheet,
-  View,
-  type GestureResponderEvent,
-} from 'react-native';
+import { ActivityIndicator, BackHandler, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/shared/components/AppText';
@@ -88,17 +81,7 @@ export function LocationConfirmScreen() {
     else router.replace('/home');
   }, [router]);
 
-  // 앱 안 터치·드래그 중에는 숫자·게이지를 멈추고, 모든 손가락을 떼면 남은 시간부터 재개한다.
-  const timing = progress?.phase === 'confirming-location';
-  const onTouchStart = useCallback(() => {
-    if (timing) parking.pauseLocationTimer();
-  }, [timing, parking]);
-  const onTouchEnd = useCallback(
-    (event: GestureResponderEvent) => {
-      if (timing && event.nativeEvent.touches.length === 0) parking.resumeLocationTimer();
-    },
-    [timing, parking],
-  );
+  // 터치 중 타이머 정지·재개는 앱 전체를 감싼 ParkingTouchGuard가 처리한다.
 
   if (!progress) {
     return (
@@ -133,12 +116,7 @@ export function LocationConfirmScreen() {
           : null;
 
   return (
-    <View
-      style={styles.root}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-      onTouchCancel={onTouchEnd}
-    >
+    <View style={styles.root}>
       <MapIllustration style={StyleSheet.absoluteFill}>
         {showPin && place ? (
           <DraggablePin
@@ -160,7 +138,9 @@ export function LocationConfirmScreen() {
       </MapIllustration>
 
       <SafeAreaView edges={['top']} style={styles.topBar} pointerEvents="box-none">
-        <IconButton name="chevron-back" label="홈으로 돌아가기" onPress={goHome} floating />
+        {locked ? null : (
+          <IconButton name="chevron-back" label="홈으로 돌아가기" onPress={goHome} floating />
+        )}
         {accuracyLabel ? (
           <View style={styles.pill}>
             <Icon name="locate" size="sm" color={colors.primary} />
@@ -253,7 +233,11 @@ function SheetContent({ goHome }: { goHome: () => void }) {
               {progress.place.address}
             </AppText>
           </View>
-          <TimerGauge timer={progress.timer} onExtend={parking.extendLocationTimer} />
+          <TimerGauge
+            key={progress.timer.mode === 'running' ? progress.timer.deadline : 'paused'}
+            timer={progress.timer}
+            onExtend={parking.extendLocationTimer}
+          />
           <View style={styles.actions}>
             <Button
               label="다시 측정하기"
@@ -335,6 +319,17 @@ function SheetContent({ goHome }: { goHome: () => void }) {
       );
 
     case 'analyzing':
+      if (parking.analysisSaveError) {
+        return (
+          <View style={styles.block}>
+            <Notice
+              title="결과를 저장하지 못했어요"
+              description="위치와 응답은 그대로 있어요. 다시 시도해 주세요."
+            />
+            <Button label="다시 시도" onPress={parking.retryAnalysis} />
+          </View>
+        );
+      }
       return (
         <View style={styles.loadingBlock} accessibilityLiveRegion="polite">
           <ActivityIndicator color={colors.primary} />

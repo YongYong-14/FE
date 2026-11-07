@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { useSession } from '@/features/auth';
@@ -33,19 +33,19 @@ export function SurveyHost() {
   const [target, setTarget] = useState<ParkingRecord | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
-  const handledSeq = useRef(0);
+  const { clearReconnectEvent } = useParking();
 
+  // 재연결 이벤트는 한 번만 평가하고 비운다(재로그인으로 화면이 다시 붙어도 다시 묻지 않음).
   useEffect(() => {
-    if (!reconnectEvent || reconnectEvent.seq === handledSeq.current) return;
+    if (!reconnectEvent) return;
     if (!snapshot.surveyEnabled) {
-      handledSeq.current = reconnectEvent.seq;
+      clearReconnectEvent();
       return;
     }
     let active = true;
     void loadSurveyStore()
       .then((store) => {
         if (!active) return;
-        handledSeq.current = reconnectEvent.seq;
         const candidate = records.find(
           (record) =>
             isRisk(record) &&
@@ -55,11 +55,14 @@ export function SurveyHost() {
         );
         if (candidate) setTarget(candidate);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) clearReconnectEvent();
+      });
     return () => {
       active = false;
     };
-  }, [reconnectEvent, records, snapshot.surveyEnabled]);
+  }, [reconnectEvent, records, snapshot.surveyEnabled, clearReconnectEvent]);
 
   async function finish(entry: { answer?: SurveyAnswer; skipped?: boolean }) {
     if (!target || saving) return;

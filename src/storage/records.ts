@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { ParkingRecord } from '@/shared/types/parking';
 
-import { storageKeys } from './keys';
+import { storageGeneration, storageKeys } from './keys';
 
 // 주차 기록 저장 모듈(최소 구현).
 // 기록 화면 담당(팀원2)이 필터·조회를 확장할 수 있도록 공개 함수만 제공한다.
@@ -27,17 +27,44 @@ export async function listRecords(): Promise<ParkingRecord[]> {
   return value.filter(isRecord).sort((a, b) => Date.parse(b.parkedAt) - Date.parse(a.parkedAt));
 }
 
-/** 같은 id면 갱신(원래 위치·주차 시각 유지), 없으면 추가한다. */
-export async function upsertRecord(record: ParkingRecord): Promise<ParkingRecord[]> {
-  const current = await listRecords();
-  const existing = current.find((item) => item.id === record.id);
-  const next = existing
-    ? current.map((item) =>
-        item.id === record.id
-          ? { ...record, place: existing.place, parkedAt: existing.parkedAt }
-          : item,
-      )
-    : [record, ...current];
-  await AsyncStorage.setItem(storageKeys.records, JSON.stringify(next));
-  return next;
+let queue: Promise<unknown> = Promise.resolve();
+
+/** 읽기-수정-쓰기를 순서대로 처리하고, 초기화 이후이거나 shouldWrite가 거짓이면 쓰지 않는다. */
+function update(
+  change: (current: ParkingRecord[]) => ParkingRecord[],
+  shouldWrite: () => boolean = () => true,
+): Promise<ParkingRecord[] | null> {
+  const startedIn = storageGeneration();
+  const task = queue.then(async () => {
+    const next = change(await listRecords());
+    if (startedIn !== storageGeneration() || !shouldWrite()) return null;
+    await AsyncStorage.setItem(storageKeys.records, JSON.stringify(next));
+    return next;
+  });
+  queue = task.catch(() => undefined);
+  return task;
+}
+
+/**
+ * 같은 id면 갱신(원래 위치·주차 시각 유지), 없으면 추가한다.
+ * 쓰지 않고 건너뛰면 null을 돌려준다.
+ */
+export function upsertRecord(
+  record: ParkingRecord,
+  shouldWrite?: () => boolean,
+): Promise<ParkingRecord[] | null> {
+  return update((current) => {
+    const existing = current.find((item) => item.id === record.id);
+    return existing
+      ? current.map((item) =>
+          item.id === record.id
+            ? { ...record, place: existing.place, parkedAt: existing.parkedAt }
+            : item,
+        )
+      : [record, ...current];
+  }, shouldWrite);
+}
+
+export function removeRecord(id: string): Promise<ParkingRecord[] | null> {
+  return update((current) => current.filter((item) => item.id !== id));
 }

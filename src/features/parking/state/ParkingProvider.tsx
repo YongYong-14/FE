@@ -15,7 +15,8 @@ import { analysisService, demoControl, locationService } from '@/services';
 import type { SelectedPlace } from '@/shared/types/location';
 import type { CrosswalkAnswer, ParkingRecord } from '@/shared/types/parking';
 import { loadParkingProgressRaw, saveParkingProgressRaw } from '@/storage/parkingProgress';
-import { listRecords, upsertRecord } from '@/storage/records';
+import { storageGeneration } from '@/storage/keys';
+import { listRecords, removeRecord, upsertRecord } from '@/storage/records';
 
 import { parseProgress, type ParkingProgress } from '../types';
 import { createFailedReport, createId } from '../utils/report';
@@ -35,6 +36,13 @@ interface ParkingContextValue {
   lastCompleted: CompletedRun | null;
   /** 진행 중인 기존 기록 재분석의 기록 id. */
   reanalyzingRecordId: string | null;
+  /** 분석은 끝났지만 기록 저장에 실패한 경우. 진행은 유지하고 다시 저장을 시도한다. */
+  analysisSaveError: boolean;
+  retryAnalysis: () => void;
+  /** 앱 안 터치 시작·종료. 위치 선택 타이머의 정지·재개에 쓴다(어느 화면에서든). */
+  notifyTouch: (active: boolean) => void;
+  /** 사후 설문이 재연결 이벤트를 처리한 뒤 비운다. */
+  clearReconnectEvent: () => void;
   /** 재연결로 진행이 취소됐을 때 홈에 한 번 보여줄 안내. */
   cancelNotice: string | null;
   /** 등록 차량 재연결 이벤트(사후 설문 판단용). */
@@ -75,16 +83,23 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   const abortRef = useRef<AbortController | null>(null);
   const reanalysisRef = useRef<{ recordId: string; controller: AbortController } | null>(null);
   const writeQueue = useRef<Promise<void>>(Promise.resolve());
-  /** 초기화·재연결 등 전체 무효화 세대. */
+  const [analysisSaveError, setAnalysisSaveError] = useState(false);
+  const clearReconnectEvent = useCallback(() => setReconnectEvent(null), []);
+  /** 데모 초기화·탈퇴 시 증가하는 전체 무효화 세대. */
   const epoch = useRef(0);
+  const restoringRef = useRef(true);
+  const touchingRef = useRef(false);
 
   // ── 상태 쓰기: 메모리·화면·기기 저장을 같은 순서로 반영한다.
   const setProgress = useCallback((next: ParkingProgress | null) => {
     progressRef.current = next;
     setProgressState(next);
     const startedIn = epoch.current;
+    const generation = storageGeneration();
     writeQueue.current = writeQueue.current
-      .then(() => (startedIn === epoch.current ? saveParkingProgressRaw(next) : undefined))
+      .then(() =>
+        startedIn === epoch.current ? saveParkingProgressRaw(next, generation) : undefined,
+      )
       .catch(() => undefined);
   }, []);
 
@@ -183,8 +198,9 @@ export function ParkingProvider({ children }: PropsWithChildren) {
           const latest = progressRef.current;
           if (!latest || latest.runId !== runId || latest.phase !== 'analyzing') return;
           const now = new Date().toISOString();
+          // 진행 건 id로 기록 id를 정해, 저장 직후 앱이 종료돼 다시 분석해도 같은 기록을 갱신한다.
           const record: ParkingRecord = {
-            id: createId('rec'),
+            id: `rec-${runId}`,
             parkedAt: disconnectedAt,
             place,
             crosswalkAnswer,
@@ -192,14 +208,25 @@ export function ParkingProvider({ children }: PropsWithChildren) {
             report,
             updatedAt: now,
           };
+          const stillRunning = () =>
+            startedIn === epoch.current &&
+            progressRef.current?.runId === runId &&
+            progressRef.current.phase === 'analyzing';
           try {
-            const next = await upsertRecord(record);
-            if (startedIn !== epoch.current) return;
+            const next = await upsertRecord(record, stillRunning);
+            if (!next) return;
+            if (!stillRunning()) {
+              // 저장 도중 재연결로 취소됐으면 방금 쓴 기록을 지운다.
+              const cleaned = await removeRecord(record.id).catch(() => null);
+              if (cleaned && startedIn === epoch.current) setRecords(cleaned);
+              return;
+            }
             setRecords(next);
           } catch {
-            setRecordsError('기록을 저장하지 못했어요.');
+            if (stillRunning()) setAnalysisSaveError(true);
+            return;
           }
-          if (progressRef.current?.runId !== runId) return;
+          setAnalysisSaveError(false);
           setLastCompleted({ runId, recordId: record.id });
           setProgress(null);
         });
@@ -215,6 +242,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
       listRecords().catch(() => null),
     ]).then(([raw, savedRecords]) => {
       if (!active) return;
+      restoringRef.current = false;
       if (savedRecords) setRecords(savedRecords);
       else setRecordsError('기록을 불러오지 못했어요.');
       let restored = parseProgress(raw);
@@ -276,13 +304,15 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     reanalysisRef.current?.controller.abort();
     reanalysisRef.current = null;
     setReanalyzingRecordId(null);
+    setAnalysisSaveError(false);
     setProgress(null);
   }, [setProgress]);
 
   const simulateDisconnect = useCallback(async () => {
-    if (!snapshot.vehicle) return;
+    if (!snapshot.vehicle || restoringRef.current) return;
+    const startedIn = epoch.current;
     await updateDevice({ vehicleConnected: false });
-    if (progressRef.current) return;
+    if (progressRef.current || startedIn !== epoch.current) return;
     setLastCompleted(null);
     setProgress({
       runId: createId('run'),
@@ -336,12 +366,29 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   const extendLocationTimer = useCallback(() => {
     const current = progressRef.current;
     if (current?.phase !== 'confirming-location') return;
-    // 손을 뗀 뒤부터 감소하도록 정지 상태로 15초를 채운다.
+    // 15초로 되돌린다. 터치 중이면 손을 뗀 뒤부터 줄어든다(보조 기술로 누른 경우는 바로 진행).
+    const now = Date.now();
     setProgress({
       ...current,
-      timer: pauseTimer(startTimer(Date.now()), Date.now()),
+      timer: touchingRef.current ? pauseTimer(startTimer(now), now) : startTimer(now),
     });
   }, [setProgress]);
+
+  const notifyTouch = useCallback(
+    (active: boolean) => {
+      touchingRef.current = active;
+      if (active) pauseLocationTimer();
+      else resumeLocationTimer();
+    },
+    [pauseLocationTimer, resumeLocationTimer],
+  );
+
+  const retryAnalysis = useCallback(() => {
+    const current = progressRef.current;
+    if (current?.phase !== 'analyzing') return;
+    setAnalysisSaveError(false);
+    runAnalysis(current.runId);
+  }, [runAnalysis]);
 
   const adjustPlace = useCallback(
     (place: SelectedPlace) => {
@@ -396,14 +443,17 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   }, [cancelProgress]);
 
   const reanalyze = useCallback(async (recordId: string) => {
+    // 첫 await 전에 잠가 연속 탭으로 재분석이 두 번 시작되지 않게 한다.
     if (reanalysisRef.current) return;
-    const record = (await listRecords()).find((item) => item.id === recordId);
-    if (!record) throw new Error('기록을 찾지 못했어요.');
     const controller = new AbortController();
     reanalysisRef.current = { recordId, controller };
     setReanalyzingRecordId(recordId);
     const startedIn = epoch.current;
+    const valid = () => !controller.signal.aborted && startedIn === epoch.current;
     try {
+      const record = (await listRecords()).find((item) => item.id === recordId);
+      if (!record) throw new Error('기록을 찾지 못했어요.');
+      if (!valid()) return;
       const report = await analysisService
         .analyze(
           {
@@ -417,14 +467,12 @@ export function ParkingProvider({ children }: PropsWithChildren) {
           controller.signal.aborted ? null : createFailedReport(record.crosswalkAnswer),
         );
       // 취소된 재시도는 원래 기록을 그대로 둔다.
-      if (!report || controller.signal.aborted || startedIn !== epoch.current) return;
-      const next = await upsertRecord({
-        ...record,
-        status: report.status,
-        report,
-        updatedAt: new Date().toISOString(),
-      });
-      setRecords(next);
+      if (!report || !valid()) return;
+      const next = await upsertRecord(
+        { ...record, status: report.status, report, updatedAt: new Date().toISOString() },
+        valid,
+      );
+      if (next && valid()) setRecords(next);
     } finally {
       if (reanalysisRef.current?.controller === controller) {
         reanalysisRef.current = null;
@@ -445,6 +493,8 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     setLastCompleted(null);
     setCancelNotice(null);
     setReconnectEvent(null);
+    setAnalysisSaveError(false);
+    touchingRef.current = false;
     setRecords([]);
     setRecordsError(null);
   }, []);
@@ -471,6 +521,10 @@ export function ParkingProvider({ children }: PropsWithChildren) {
       reanalyzingRecordId,
       cancelNotice,
       reconnectEvent,
+      analysisSaveError,
+      retryAnalysis,
+      notifyTouch,
+      clearReconnectEvent,
       clearCancelNotice,
       simulateDisconnect,
       simulateReconnect,
@@ -489,6 +543,10 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     [
       cancelNotice,
       reconnectEvent,
+      analysisSaveError,
+      retryAnalysis,
+      notifyTouch,
+      clearReconnectEvent,
       clearCancelNotice,
       progress,
       isRestoring,

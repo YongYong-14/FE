@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { storageKeys } from './keys';
+import { storageGeneration, storageKeys } from './keys';
 
 // 사후 설문 보관: 리포트를 확인한 주차와 주차별 응답·건너뛰기. 재실행·재로그인 후에도 유지한다.
 
@@ -32,8 +32,11 @@ export async function loadSurveyStore(): Promise<SurveyStore> {
 
 /** 읽기-수정-쓰기를 순서대로 처리해 동시 저장으로 값이 사라지지 않게 한다. */
 function update(change: (store: SurveyStore) => SurveyStore): Promise<SurveyStore> {
+  const startedIn = storageGeneration();
   const task = queue.then(async () => {
     const next = change(await loadSurveyStore());
+    // 초기화·탈퇴 이후에 도착한 쓰기는 삭제된 상태를 되살리지 않도록 버린다.
+    if (startedIn !== storageGeneration()) return next;
     await AsyncStorage.setItem(storageKeys.surveys, JSON.stringify(next));
     return next;
   });
