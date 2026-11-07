@@ -11,7 +11,12 @@ import { colors, spacing } from '@/shared/theme/tokens';
 export function TermsScreen() {
   const router = useRouter();
   const { doc } = useLocalSearchParams<{ doc?: string }>();
-  const title = doc === 'privacy' ? '개인정보 처리방침' : '이용약관';
+  const title =
+    doc === 'privacy'
+      ? '개인정보 처리방침'
+      : doc === 'location'
+        ? '위치기반서비스 이용약관'
+        : '이용약관';
 
   return (
     <Screen background={colors.surface} contentStyle={styles.content}>

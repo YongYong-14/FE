@@ -1,4 +1,5 @@
 import type { SelectedPlace } from '@/shared/types/location';
+import type { MapPoint, ParkingLot, RiskArea } from '@/shared/types/map';
 import type { AnalysisReport, CrosswalkAnswer } from '@/shared/types/parking';
 import type { DemoUser, RegisteredVehicle } from '@/shared/types/session';
 
@@ -33,4 +34,14 @@ export interface AnalysisInput {
 
 export interface AnalysisService {
   analyze(input: AnalysisInput, signal?: AbortSignal): Promise<AnalysisReport>;
+}
+
+export interface MapService {
+  listRiskAreas(): Promise<RiskArea[]>;
+  currentLocation(): MapPoint;
+}
+
+export interface ParkingLotService {
+  /** 주차 위치 기준 반경 안의 주차장을 거리순으로 돌려준다. */
+  search(radiusMeters: number): Promise<ParkingLot[]>;
 }

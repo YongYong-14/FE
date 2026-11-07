@@ -20,6 +20,9 @@ export const demoLocationService: LocationService = {
 export const demoPlaceService: PlaceService = {
   async search(query) {
     await wait(250);
+    if (demoControl.consume('placeSearch', 'normal') === 'fail-once') {
+      throw new Error('장소를 불러오지 못했어요.');
+    }
     const keyword = query.trim();
     if (!keyword) return demoPlaces.map((place) => ({ ...place }));
     return demoPlaces

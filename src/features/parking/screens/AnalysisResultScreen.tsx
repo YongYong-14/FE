@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -9,8 +9,9 @@ import { IconButton } from '@/shared/components/IconButton';
 import { StateView } from '@/shared/components/StateView';
 import { colors, radii, spacing } from '@/shared/theme/tokens';
 import type { AnalysisStatus } from '@/shared/types/parking';
+import { markReportViewed } from '@/storage/surveys';
 
-import { MapIllustration, ParkingMarker, RiskZone } from '../components/MapIllustration';
+import { MapIllustration, ParkingMarker, RiskZone } from '@/shared/map/MapIllustration';
 import { ReportView } from '../components/ReportView';
 import { useParking } from '../state/ParkingProvider';
 
@@ -47,6 +48,13 @@ export function AnalysisResultScreen() {
     useParking();
   const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
   const record = records.find((item) => item.id === recordId);
+  const viewedRiskId =
+    record && (record.status === 'level-1' || record.status === 'level-2') ? record.id : null;
+
+  // 위험 리포트를 확인한 주차만 재탑승 사후 설문 대상이 된다.
+  useEffect(() => {
+    if (viewedRiskId) void markReportViewed(viewedRiskId).catch(() => undefined);
+  }, [viewedRiskId]);
 
   function goBack() {
     if (router.canGoBack()) router.back();

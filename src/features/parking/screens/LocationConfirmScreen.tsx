@@ -22,7 +22,7 @@ import type { SelectedPlace } from '@/shared/types/location';
 import { CrosswalkModal } from '../components/CrosswalkModal';
 import { DraggablePin } from '../components/DraggablePin';
 import { ManualPlacePicker } from '../components/ManualPlacePicker';
-import { MapIllustration } from '../components/MapIllustration';
+import { MapIllustration } from '@/shared/map/MapIllustration';
 import { ManualConfirmHint, TimerGauge } from '../components/TimerGauge';
 import { useParking } from '../state/ParkingProvider';
 

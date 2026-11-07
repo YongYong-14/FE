@@ -5,6 +5,10 @@ export {
   demoLocationService as locationService,
   demoPlaceService as placeService,
 } from './demo/location';
+export {
+  demoMapService as mapService,
+  demoParkingLotService as parkingLotService,
+} from './demo/map';
 export { demoVehicleService as vehicleService } from './demo/vehicle';
 
 // 시연 제어(데모 설정 화면 전용). 실제 연동 경로에서는 제거한다.

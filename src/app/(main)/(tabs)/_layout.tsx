@@ -19,7 +19,7 @@ export default function TabLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
-        tabBarLabelStyle: { fontFamily: fonts.regular, fontSize: 10 },
+        tabBarLabelStyle: { fontFamily: fonts.bold, fontSize: 11 },
       }}
     >
       {tabs.map(({ name, title, icon }) => (

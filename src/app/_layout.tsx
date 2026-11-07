@@ -24,7 +24,7 @@ function RootNavigator() {
 
   if (isLoading) {
     return (
-      <Screen>
+      <Screen contentStyle={{ alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={colors.primary} />
         <AppText>정보를 불러오고 있어요.</AppText>
       </Screen>

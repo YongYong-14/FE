@@ -19,7 +19,7 @@ export function IconButton({ name, label, onPress, floating }: IconButtonProps) 
       accessibilityLabel={label}
       onPress={onPress}
       hitSlop={4}
-      android_ripple={{ color: 'rgba(0,0,0,0.08)', borderless: true }}
+      android_ripple={{ color: 'rgba(0,0,0,0.08)', borderless: !floating }}
       style={({ pressed }) => [
         styles.base,
         floating && styles.floating,

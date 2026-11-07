@@ -9,6 +9,10 @@ export interface DemoScenario {
   vehicleRegister: 'success' | 'fail-once';
   locate: 'yongin' | 'outside' | 'unavailable';
   analysis: AnalysisStatus | 'error-once';
+  /** 주변 주차장 조회 결과. far-only는 500m 안에는 없고 1km 안에만 있다. */
+  parkingLots: 'normal' | 'far-only' | 'none';
+  /** 장소 검색 실패 1회. */
+  placeSearch: 'normal' | 'fail-once';
   /** 이 단계에 도달하면 등록 차량 재연결 이벤트를 발생시킨다. */
   reconnectAt: ParkingPhase | null;
 }
@@ -19,6 +23,8 @@ export const defaultScenario: DemoScenario = {
   vehicleRegister: 'success',
   locate: 'yongin',
   analysis: 'level-2',
+  parkingLots: 'normal',
+  placeSearch: 'normal',
   reconnectAt: null,
 };
 

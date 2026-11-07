@@ -6,10 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '@/features/auth';
 import {
   formatParkedAt,
-  MapIllustration,
   ParkingGlyph,
-  ParkingMarker,
-  RiskZone,
   statusTone,
   useParking,
   type ParkingProgress,
@@ -18,6 +15,7 @@ import { AppText } from '@/shared/components/AppText';
 import { Badge, type BadgeTone } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
 import { Icon } from '@/shared/components/Icon';
+import { MapIllustration, ParkingMarker, RiskZone } from '@/shared/map/MapIllustration';
 import { IconButton } from '@/shared/components/IconButton';
 import { BottomBanner, Notice } from '@/shared/components/Notice';
 import { Card, IconTile, SheetSurface } from '@/shared/components/Surface';
