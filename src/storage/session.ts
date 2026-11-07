@@ -1,8 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { createInitialSession, type SessionSnapshot } from '@/shared/types/session';
+import {
+  createInitialDevice,
+  createInitialSession,
+  type DemoDeviceState,
+  type SessionSnapshot,
+} from '@/shared/types/session';
 
-const SESSION_KEY = '@seulkkamalkka/session:v1';
+import { storageKeys } from './keys';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -10,6 +15,31 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function hasNamedId(value: unknown): boolean {
   return isObject(value) && typeof value.id === 'string' && value.id.length > 0;
+}
+
+const locationValues = ['unset', 'denied', 'foreground', 'always'];
+const bluetoothValues = ['unset', 'denied', 'granted'];
+
+/** 이전 버전 저장값에는 device가 없으므로 기본값으로 채운다. */
+function parseDevice(value: unknown): DemoDeviceState {
+  const fallback = createInitialDevice();
+  if (!isObject(value)) return fallback;
+  return {
+    locationPermission: locationValues.includes(value.locationPermission as string)
+      ? (value.locationPermission as DemoDeviceState['locationPermission'])
+      : fallback.locationPermission,
+    bluetoothPermission: bluetoothValues.includes(value.bluetoothPermission as string)
+      ? (value.bluetoothPermission as DemoDeviceState['bluetoothPermission'])
+      : fallback.bluetoothPermission,
+    bluetoothEnabled:
+      typeof value.bluetoothEnabled === 'boolean'
+        ? value.bluetoothEnabled
+        : fallback.bluetoothEnabled,
+    vehicleConnected:
+      typeof value.vehicleConnected === 'boolean'
+        ? value.vehicleConnected
+        : fallback.vehicleConnected,
+  };
 }
 
 export function parseSession(raw: string | null): SessionSnapshot {
@@ -33,13 +63,16 @@ export function parseSession(raw: string | null): SessionSnapshot {
     throw new Error('저장된 정보를 읽지 못했어요. 다시 시도해 주세요.');
   }
 
-  return value as unknown as SessionSnapshot;
+  return {
+    ...(value as unknown as Omit<SessionSnapshot, 'device'>),
+    device: parseDevice(value.device),
+  };
 }
 
 export async function loadSession(): Promise<SessionSnapshot> {
-  return parseSession(await AsyncStorage.getItem(SESSION_KEY));
+  return parseSession(await AsyncStorage.getItem(storageKeys.session));
 }
 
 export async function saveSession(snapshot: SessionSnapshot): Promise<void> {
-  await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(snapshot));
+  await AsyncStorage.setItem(storageKeys.session, JSON.stringify(snapshot));
 }

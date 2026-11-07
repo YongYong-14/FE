@@ -1,36 +1,98 @@
-import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import type { ReactNode } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 
 import { AppText } from './AppText';
-import { colors, radii, spacing } from '@/shared/theme/tokens';
+import { colors, radii, spacing, touchTarget } from '@/shared/theme/tokens';
+
+export type ButtonVariant =
+  'primary' | 'neutral' | 'outline' | 'kakao' | 'ghost' | 'link' | 'inverse';
 
 interface ButtonProps {
   label: string;
   onPress: () => void;
+  variant?: ButtonVariant;
+  /** 기존 호출부 호환용. `variant="outline"`과 같다. */
+  secondary?: boolean;
+  size?: 'lg' | 'md' | 'sm';
   disabled?: boolean;
   loading?: boolean;
-  secondary?: boolean;
+  leading?: ReactNode;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
+  style?: ViewStyle;
 }
 
-export function Button({ label, onPress, disabled, loading, secondary }: ButtonProps) {
+const variantStyles = {
+  primary: { bg: colors.primary, fg: colors.inverse, ripple: 'rgba(255,255,255,0.22)' },
+  neutral: { bg: colors.surfaceMuted, fg: colors.ink, ripple: 'rgba(0,0,0,0.08)' },
+  outline: { bg: colors.surface, fg: colors.ink, ripple: 'rgba(0,0,0,0.08)' },
+  kakao: { bg: colors.kakao, fg: colors.ink, ripple: 'rgba(0,0,0,0.08)' },
+  ghost: { bg: 'transparent', fg: colors.textSecondary, ripple: 'rgba(0,0,0,0.06)' },
+  link: { bg: 'transparent', fg: colors.primary, ripple: 'rgba(31,99,224,0.10)' },
+  inverse: { bg: colors.surface, fg: colors.ink, ripple: 'rgba(0,0,0,0.08)' },
+} as const;
+
+const sizes = {
+  lg: { minHeight: 56, paddingHorizontal: spacing.md, fontVariant: 'subtitle' as const },
+  md: { minHeight: touchTarget, paddingHorizontal: spacing.lg, fontVariant: 'body' as const },
+  sm: { minHeight: 36, paddingHorizontal: spacing.md, fontVariant: 'caption' as const },
+};
+
+export function Button({
+  label,
+  onPress,
+  variant,
+  secondary,
+  size = 'lg',
+  disabled,
+  loading,
+  leading,
+  accessibilityLabel,
+  accessibilityHint,
+  style,
+}: ButtonProps) {
+  const resolved: ButtonVariant = variant ?? (secondary ? 'outline' : 'primary');
+  const tone = variantStyles[resolved];
+  const dimension = sizes[size];
   const unavailable = Boolean(disabled || loading);
+  const disabledLook = Boolean(disabled && !loading);
+
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: unavailable, busy: loading }}
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled: unavailable, busy: Boolean(loading) }}
       disabled={unavailable}
       onPress={onPress}
+      android_ripple={{ color: tone.ripple }}
+      hitSlop={size === 'sm' ? 6 : undefined}
       style={({ pressed }) => [
         styles.button,
-        secondary && styles.secondary,
-        (pressed || unavailable) && styles.dimmed,
+        {
+          minHeight: dimension.minHeight,
+          paddingHorizontal: dimension.paddingHorizontal,
+          backgroundColor: disabledLook ? colors.track : tone.bg,
+        },
+        resolved === 'outline' && styles.outline,
+        size === 'sm' && styles.small,
+        pressed && styles.pressed,
+        style,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={secondary ? colors.primary : colors.surface} />
+        <ActivityIndicator color={tone.fg} />
       ) : (
-        <AppText weight="bold" style={{ color: secondary ? colors.primary : colors.surface }}>
-          {label}
-        </AppText>
+        <View style={styles.content}>
+          {leading}
+          <AppText
+            variant={dimension.fontVariant}
+            weight="bold"
+            style={{ color: disabledLook ? colors.textSecondary : tone.fg, textAlign: 'center' }}
+          >
+            {label}
+          </AppText>
+        </View>
       )}
     </Pressable>
   );
@@ -38,14 +100,14 @@ export function Button({ label, onPress, disabled, loading, secondary }: ButtonP
 
 const styles = StyleSheet.create({
   button: {
-    minHeight: 52,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
     borderRadius: radii.sm,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primary,
+    paddingVertical: spacing.sm,
+    overflow: 'hidden',
   },
-  secondary: { backgroundColor: colors.surface, borderColor: colors.line, borderWidth: 1 },
-  dimmed: { opacity: 0.55 },
+  outline: { borderColor: colors.line, borderWidth: 1 },
+  small: { borderRadius: radii.pill },
+  content: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  pressed: { opacity: 0.86 },
 });
