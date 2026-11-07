@@ -44,6 +44,7 @@ function RootNavigator() {
       screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="terms" />
       <Stack.Protected guard={!ready}>
         <Stack.Screen name="(onboarding)" />
       </Stack.Protected>
