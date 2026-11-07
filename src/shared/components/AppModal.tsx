@@ -7,6 +7,8 @@ interface AppModalProps {
   visible: boolean;
   /** 지정하지 않으면 바깥 터치·Android 뒤로 가기로 닫히지 않는다. */
   onDismiss?: () => void;
+  /** Android 뒤로 가기만 따로 처리할 때(바깥 터치로는 닫지 않음). */
+  onBackPress?: () => void;
   placement?: 'center' | 'bottom';
 }
 
@@ -14,6 +16,7 @@ interface AppModalProps {
 export function AppModal({
   visible,
   onDismiss,
+  onBackPress,
   placement = 'center',
   children,
 }: PropsWithChildren<AppModalProps>) {
@@ -24,7 +27,7 @@ export function AppModal({
       animationType="fade"
       statusBarTranslucent
       navigationBarTranslucent
-      onRequestClose={() => onDismiss?.()}
+      onRequestClose={() => (onBackPress ?? onDismiss)?.()}
     >
       <View style={[styles.root, placement === 'bottom' && styles.bottom]}>
         <Pressable

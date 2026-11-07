@@ -37,6 +37,8 @@ interface ParkingContextValue {
   reanalyzingRecordId: string | null;
   /** 재연결로 진행이 취소됐을 때 홈에 한 번 보여줄 안내. */
   cancelNotice: string | null;
+  /** 등록 차량 재연결 이벤트(사후 설문 판단용). */
+  reconnectEvent: { seq: number; at: string } | null;
   clearCancelNotice: () => void;
 
   simulateDisconnect: () => Promise<void>;
@@ -66,6 +68,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   const [lastCompleted, setLastCompleted] = useState<CompletedRun | null>(null);
   const [reanalyzingRecordId, setReanalyzingRecordId] = useState<string | null>(null);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
+  const [reconnectEvent, setReconnectEvent] = useState<{ seq: number; at: string } | null>(null);
   const clearCancelNotice = useCallback(() => setCancelNotice(null), []);
 
   const progressRef = useRef<ParkingProgress | null>(null);
@@ -294,6 +297,10 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     cancelProgress();
     if (hadProgress) setCancelNotice('차량이 다시 연결되어 주차 확인을 취소했어요.');
     await updateDevice({ vehicleConnected: true });
+    setReconnectEvent((previous) => ({
+      seq: (previous?.seq ?? 0) + 1,
+      at: new Date().toISOString(),
+    }));
   }, [cancelProgress, updateDevice]);
 
   const startLocating = useCallback(() => {
@@ -437,6 +444,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     setReanalyzingRecordId(null);
     setLastCompleted(null);
     setCancelNotice(null);
+    setReconnectEvent(null);
     setRecords([]);
     setRecordsError(null);
   }, []);
@@ -462,6 +470,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
       lastCompleted,
       reanalyzingRecordId,
       cancelNotice,
+      reconnectEvent,
       clearCancelNotice,
       simulateDisconnect,
       simulateReconnect,
@@ -479,6 +488,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     }),
     [
       cancelNotice,
+      reconnectEvent,
       clearCancelNotice,
       progress,
       isRestoring,
