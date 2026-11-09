@@ -2,17 +2,20 @@ import type { AnalysisReport, AnalysisStatus, CrosswalkAnswer } from '@/shared/t
 
 // 시연용 리포트. 수치·근거는 모두 예시이며 실제 위험 계산·법적 판정이 아니다.
 
-const crosswalkEvidence = (answer: CrosswalkAnswer) => ({
+const crosswalkEvidence = (answer: CrosswalkAnswer | null) => ({
   label: '횡단보도 10m 이내 (직접 응답)',
-  value: answer === 'yes' ? '예' : '아니요',
+  value: answer === 'yes' ? '예' : answer === 'no' ? '아니요' : '응답 없음',
 });
 
-export function buildDemoReport(status: AnalysisStatus, answer: CrosswalkAnswer): AnalysisReport {
+export function buildDemoReport(
+  status: AnalysisStatus,
+  answer: CrosswalkAnswer | null,
+): AnalysisReport {
   switch (status) {
     case 'level-1':
       return {
         status,
-        badge: '1단계 · 절대금지구역',
+        badge: '1단계 · 소화전 주변',
         headline: '소화전 주변이에요',
         evidence: [
           { label: '소화전까지 거리 (예시)', value: '7m' },
@@ -52,8 +55,8 @@ export function buildDemoReport(status: AnalysisStatus, answer: CrosswalkAnswer)
     case 'no-risk-found':
       return {
         status,
-        badge: '확인된 위험 없음',
-        headline: '확인된 위험 요소가 없어요',
+        badge: '알림 대상 아님',
+        headline: '알림 대상이 아니에요',
         summary:
           '분석은 마쳤지만 위험 근거를 찾지 못했어요. 안전하거나 합법적인 주차라는 뜻은 아니에요.',
         evidence: [
@@ -68,8 +71,8 @@ export function buildDemoReport(status: AnalysisStatus, answer: CrosswalkAnswer)
     case 'insufficient-data':
       return {
         status,
-        badge: '정보 부족',
-        headline: '판단할 정보가 부족해요',
+        badge: '판단 불가',
+        headline: '판단할 수 없어요',
         summary: '이 위치의 데이터가 충분하지 않아 위험 여부를 판단하지 못했어요.',
         evidence: [crosswalkEvidence(answer)],
         stats: [],

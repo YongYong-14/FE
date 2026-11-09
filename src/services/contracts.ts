@@ -1,17 +1,73 @@
-import type { SelectedPlace } from '@/shared/types/location';
-import type { MapPoint, ParkingLot, RiskArea } from '@/shared/types/map';
-import type { AnalysisReport, CrosswalkAnswer } from '@/shared/types/parking';
-import type { DemoUser, RegisteredVehicle } from '@/shared/types/session';
+import type { Coordinate, SelectedPlace } from '@/shared/types/location';
+import type { GeoBounds, ParkingLotSearch, RiskZoneData } from '@/shared/types/map';
+import type {
+  AnalysisReport,
+  AnalysisStatus,
+  CrosswalkAnswer,
+  LatestParking,
+  ParkingAlert,
+  ParkingRecord,
+  ParkingSubmission,
+  RecordPlace,
+} from '@/shared/types/parking';
+import type {
+  AgreementType,
+  PairedDevice,
+  RegisteredVehicle,
+  SessionUser,
+} from '@/shared/types/session';
 
-// 기능 코드가 사용하는 내부 호출 규격. 실제 API 계약이 아니다.
+// 기능 코드가 사용하는 내부 호출 규격. 데모(services/demo)와 서버 API(services/api)가 같은 규격을 구현한다.
+
+export interface SignInResult {
+  user: SessionUser;
+  isNewUser: boolean;
+  missingAgreements: AgreementType[];
+}
+
+export interface AccountProfile {
+  user: SessionUser;
+  hasVehicle: boolean;
+  missingAgreements: AgreementType[];
+}
 
 export interface AccountService {
-  signIn(): Promise<DemoUser>;
+  signIn(): Promise<SignInResult>;
+  /** 저장된 로그인으로 내 정보·약관 상태를 다시 읽는다. 로그인이 없거나 만료됐으면 null. */
+  restore(): Promise<AccountProfile | null>;
+  agree(types: AgreementType[]): Promise<void>;
+  signOut(): Promise<void>;
+  /** 서버 계정 삭제. 성공한 뒤에만 기기 데이터를 지운다. */
+  withdraw(): Promise<void>;
+  /** 토큰 재발급이 실패해 다시 로그인해야 할 때 알린다. */
+  onSessionExpired(listener: () => void): () => void;
+}
+
+/** 휴대폰에 페어링된 블루투스 기기 조회(앱·OS 기능). */
+export interface BluetoothDeviceService {
+  listPairedDevices(): Promise<PairedDevice[]>;
 }
 
 export interface VehicleService {
-  listVehicles(): Promise<RegisteredVehicle[]>;
-  register(vehicle: RegisteredVehicle): Promise<RegisteredVehicle>;
+  /** 서버에 등록된 활성 차량. 없으면 null. */
+  getVehicle(): Promise<RegisteredVehicle | null>;
+  register(device: PairedDevice): Promise<RegisteredVehicle>;
+}
+
+export interface NotificationSettings {
+  /** 1단계 위험 알림. 항상 켜져 있고 바꿀 수 없다. */
+  dangerEnabled: boolean;
+  /** 2단계 주의 알림. */
+  cautionEnabled: boolean;
+  /** 22시~다음 날 7시 2단계 알림. */
+  nightEnabled: boolean;
+}
+
+export interface NotificationSettingsService {
+  get(): Promise<NotificationSettings>;
+  update(
+    patch: Partial<Pick<NotificationSettings, 'cautionEnabled' | 'nightEnabled'>>,
+  ): Promise<NotificationSettings>;
 }
 
 export type LocateResult =
@@ -27,21 +83,56 @@ export interface PlaceService {
 }
 
 export interface AnalysisInput {
-  place: SelectedPlace;
+  place: RecordPlace;
   parkedAt: string;
-  crosswalkAnswer: CrosswalkAnswer;
+  crosswalkAnswer: CrosswalkAnswer | null;
+  submission: ParkingSubmission;
 }
 
+export interface AnalysisOutcome {
+  /** 기록 id. 서버 연결 시 parkingEventId. */
+  recordId: string;
+  status: AnalysisStatus;
+  report: AnalysisReport;
+  /** 서버가 채운 주소. 역지오코딩 전이면 null. */
+  address: string | null;
+  /** 같은 요청으로 다시 판정할 수 있는지. */
+  retryable: boolean;
+  /** 앱이 띄울 알림. 서버 결정이 SEND일 때만 있다. */
+  alert: ParkingAlert | null;
+}
+
+export type DeliveryResult =
+  { deliveredAt: string } | { failure: 'NO_PERMISSION' | 'DISPLAY_FAILED' | 'UNKNOWN' };
+
 export interface AnalysisService {
-  analyze(input: AnalysisInput, signal?: AbortSignal): Promise<AnalysisReport>;
+  analyze(input: AnalysisInput, signal?: AbortSignal): Promise<AnalysisOutcome>;
+  /** 앱이 알림을 실제로 띄운 뒤(또는 못 띄운 뒤) 결과를 보고한다. */
+  reportDelivery(recordId: string, result: DeliveryResult): Promise<void>;
+}
+
+export interface RecordService {
+  /** 최신순 기록. level을 주면 그 단계만. */
+  list(options?: { level?: 1 | 2 }): Promise<ParkingRecord[]>;
+  /** 판정 상세. 없으면 null. */
+  get(recordId: string): Promise<ParkingRecord | null>;
+  latest(): Promise<LatestParking>;
 }
 
 export interface MapService {
-  listRiskAreas(): Promise<RiskArea[]>;
-  currentLocation(): MapPoint;
+  /** 지도를 처음 띄울 기준 위치(현재 위치). */
+  currentLocation(): Coordinate;
+  riskZones(bounds: GeoBounds, at?: string): Promise<RiskZoneData>;
 }
 
 export interface ParkingLotService {
-  /** 주차 위치 기준 반경 안의 주차장을 거리순으로 돌려준다. */
-  search(radiusMeters: number): Promise<ParkingLot[]>;
+  /** 기준 위치 반경 안의 주차장을 직선 거리순으로 돌려준다. */
+  search(origin: Coordinate, radiusMeters: number): Promise<ParkingLotSearch>;
+}
+
+export interface SystemService {
+  mode: 'api' | 'demo';
+  /** 서버 연결 시 API 기본 주소. */
+  baseUrl: string | null;
+  health(): Promise<{ ok: boolean; status: string }>;
 }

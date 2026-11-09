@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { useSession } from '@/features/auth';
-import { vehicleService } from '@/services';
+import { bluetoothDeviceService, describeError, vehicleService } from '@/services';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
 import { IconButton } from '@/shared/components/IconButton';
@@ -13,7 +13,7 @@ import { StateView } from '@/shared/components/StateView';
 import { IconTile } from '@/shared/components/Surface';
 import { useAsyncAction } from '@/shared/hooks/useAsyncAction';
 import { colors, radii, spacing } from '@/shared/theme/tokens';
-import type { DeviceKind, RegisteredVehicle } from '@/shared/types/session';
+import type { DeviceKind, PairedDevice } from '@/shared/types/session';
 
 const kindLabel: Record<DeviceKind, string> = {
   'car-audio': '차량 오디오',
@@ -28,7 +28,7 @@ function DeviceRow({
   disabled,
   onPress,
 }: {
-  vehicle: RegisteredVehicle;
+  vehicle: PairedDevice;
   selected: boolean;
   current: boolean;
   disabled: boolean;
@@ -70,23 +70,27 @@ function DeviceRow({
 
 /**
  * 최초 차량 등록과 차량 변경이 함께 쓰는 화면.
+ * 페어링 기기 목록은 앱(OS)이 읽고, 고른 기기의 이름·MAC 주소만 서버에 등록한다(PUT /vehicle).
  * 새 등록이 성공해야 기존 차량을 교체하며, 취소·실패 시 기존 등록과 기록을 유지한다.
  */
 export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => void }) {
   const router = useRouter();
   const { snapshot, registerVehicle, isSaving } = useSession();
   const isChange = Boolean(snapshot.vehicle);
-  const [vehicles, setVehicles] = useState<RegisteredVehicle[]>([]);
-  const [selected, setSelected] = useState<string | null>(snapshot.vehicle?.id ?? null);
+  const [vehicles, setVehicles] = useState<PairedDevice[]>([]);
+  const currentAddress = snapshot.vehicle?.bluetoothAddress ?? null;
+  const [selected, setSelected] = useState<string | null>(currentAddress);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const { run, isRunning, error } = useAsyncAction();
+  const { run, isRunning, error } = useAsyncAction((cause) =>
+    describeError(cause, '다시 시도해 주세요.'),
+  );
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setLoadError(false);
     try {
-      setVehicles(await vehicleService.listVehicles());
+      setVehicles(await bluetoothDeviceService.listPairedDevices());
     } catch {
       setLoadError(true);
     } finally {
@@ -96,8 +100,8 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
 
   useEffect(() => {
     let active = true;
-    vehicleService
-      .listVehicles()
+    bluetoothDeviceService
+      .listPairedDevices()
       .then((items) => {
         if (active) setVehicles(items);
       })
@@ -113,7 +117,7 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
   }, []);
 
   const busy = isRunning || isSaving;
-  const unchanged = isChange && selected === snapshot.vehicle?.id;
+  const unchanged = isChange && selected !== null && selected === currentAddress;
 
   return (
     <Screen
@@ -124,11 +128,7 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
           {error ? (
             <Notice
               title="차량을 등록하지 못했어요"
-              description={
-                isChange
-                  ? '기존 차량은 그대로 유지돼요. 다시 시도해 주세요.'
-                  : '다시 시도해 주세요.'
-              }
+              description={isChange ? `기존 차량은 그대로 유지돼요. ${error}` : error}
             />
           ) : null}
           <Button
@@ -137,9 +137,9 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
             loading={busy}
             onPress={() =>
               void run(async () => {
-                const vehicle = vehicles.find((item) => item.id === selected);
-                if (!vehicle) return;
-                const registered = await vehicleService.register(vehicle);
+                const device = vehicles.find((item) => item.address === selected);
+                if (!device) return;
+                const registered = await vehicleService.register(device);
                 await registerVehicle(registered);
                 onComplete?.();
               })
@@ -193,12 +193,12 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
         <View style={styles.list} accessibilityRole="radiogroup">
           {vehicles.map((vehicle) => (
             <DeviceRow
-              key={vehicle.id}
+              key={vehicle.address}
               vehicle={vehicle}
-              selected={selected === vehicle.id}
-              current={snapshot.vehicle?.id === vehicle.id}
+              selected={selected === vehicle.address}
+              current={currentAddress === vehicle.address}
               disabled={busy}
-              onPress={() => setSelected(vehicle.id)}
+              onPress={() => setSelected(vehicle.address)}
             />
           ))}
         </View>

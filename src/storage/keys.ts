@@ -6,6 +6,8 @@ export const storageKeys = {
   parkingProgress: '@seulkkamalkka/parking-progress:v1',
   records: '@seulkkamalkka/records:v1',
   surveys: '@seulkkamalkka/surveys:v1',
+  authTokens: '@seulkkamalkka/auth-tokens:v1',
+  alerts: '@seulkkamalkka/shown-alerts:v1',
 } as const;
 
 let generation = 0;

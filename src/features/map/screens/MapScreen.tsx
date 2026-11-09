@@ -18,11 +18,65 @@ import { IconButton } from '@/shared/components/IconButton';
 import { MapIllustration } from '@/shared/map/MapIllustration';
 import { CountBubble, LocationDot, PlacePin, RiskAreaShape } from '@/shared/map/MapMarkers';
 import { colors, fonts, radii, shadows, spacing, touchTarget } from '@/shared/theme/tokens';
-import type { SelectedPlace } from '@/shared/types/location';
-import type { RiskArea } from '@/shared/types/map';
+import type { Coordinate, SelectedPlace } from '@/shared/types/location';
+import type { GeoBounds, RiskArea, RiskZoneData } from '@/shared/types/map';
+import { dataPeriodLabel, timeSlotLabel, weekdayLabel } from '@/shared/utils/format';
+import {
+  boundsAround,
+  isInside,
+  metersToHeightPercent,
+  metersToWidthPercent,
+  project,
+  projectRatio,
+} from '@/shared/utils/geo';
 
-/** 검색으로 고른 장소를 표시할 일러스트 위 위치(시연용 고정 위치). */
-const PLACE_POINT = { left: '72%', top: '64%' } as const;
+/** 지도 한 변의 절반(m). 서버는 한 변 2km까지 받는다. */
+const HALF_SPAN_M = 500;
+/** 법정 거리(5·10m)는 이 축척에서 점보다 작아 최소 크기로 그린다. */
+const MIN_ZONE_PX = 26;
+
+type ZoneState =
+  { key: string; status: 'done'; data: RiskZoneData } | { key: string; status: 'error' };
+
+/** 서버 좌표 구역 → 일러스트 비율 좌표. */
+function toRiskAreas(data: RiskZoneData, bounds: GeoBounds, widthPx: number): RiskArea[] {
+  const pxPerMeter = widthPx > 0 ? widthPx / (HALF_SPAN_M * 2) : 0;
+  const facilities: RiskArea[] = data.facilityZones.map((zone, index) => {
+    const center = project(zone.coordinate, bounds);
+    return {
+      id: `facility-${index}`,
+      level: 1,
+      shape: {
+        kind: 'circle',
+        center,
+        size: Math.max(MIN_ZONE_PX, zone.radiusMeters * 2 * pxPerMeter),
+      },
+      badge: center,
+      reportCount: 0,
+    };
+  });
+  const cells: RiskArea[] = data.cells.map((cell, index) => {
+    const { x, y } = projectRatio(cell.coordinate, bounds);
+    const width = metersToWidthPercent(cell.sizeMeters, bounds);
+    const height = metersToHeightPercent(cell.sizeMeters, bounds);
+    return {
+      id: `cell-${index}`,
+      level: 2,
+      shape: {
+        kind: 'rect',
+        rect: {
+          left: `${(x - width / 2).toFixed(2)}%`,
+          top: `${(y - height / 2).toFixed(2)}%`,
+          width: `${width.toFixed(2)}%`,
+          height: `${height.toFixed(2)}%`,
+        },
+      },
+      badge: { left: `${x.toFixed(2)}%`, top: `${(y - height / 2).toFixed(2)}%` },
+      reportCount: cell.reportCount,
+    };
+  });
+  return [...cells, ...facilities];
+}
 
 type SearchState =
   | { status: 'idle' }
@@ -31,11 +85,13 @@ type SearchState =
   | { status: 'error' };
 
 /**
- * 지도 탭. 예시 위험 구역·신고 건수·장소 검색을 보여준다.
- * 검색과 선택만으로 주차 분석을 시작하지 않는다.
+ * 지도 탭. 화면 범위의 1단계 구역·2단계 집중 칸(GET /map/risk-zones)과 장소 검색을 보여준다.
+ * 검색으로 고른 장소로 지도 범위를 옮기며, 검색과 선택만으로 주차 분석을 시작하지 않는다.
  */
 export function MapScreen() {
-  const [areas, setAreas] = useState<RiskArea[]>([]);
+  const [zones, setZones] = useState<ZoneState | null>(null);
+  const [widthPx, setWidthPx] = useState(0);
+  const [zoneRetryKey, setZoneRetryKey] = useState(0);
   const [showCounts, setShowCounts] = useState(true);
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
@@ -43,15 +99,45 @@ export function MapScreen() {
   const [selected, setSelected] = useState<SelectedPlace | null>(null);
   const [retryKey, setRetryKey] = useState(0);
 
+  const current: Coordinate = mapService.currentLocation();
+  const center = selected?.isSupportedRegion ? selected.coordinate : current;
+  // 좌표 값이 같으면 같은 범위로 본다(다시 조회하지 않음).
+  const { latitude, longitude } = center;
+  const bounds = boundsAround({ latitude, longitude }, HALF_SPAN_M);
+  const requestKey = `${latitude},${longitude},${zoneRetryKey}`;
+
   useEffect(() => {
     let active = true;
-    void mapService.listRiskAreas().then((items) => {
-      if (active) setAreas(items);
-    });
+    mapService
+      .riskZones(boundsAround({ latitude, longitude }, HALF_SPAN_M))
+      .then((data) => {
+        if (active) setZones({ key: requestKey, status: 'done', data });
+      })
+      .catch(() => {
+        // 조회 실패를 0건으로 보여주지 않는다(명세 5절).
+        if (active) setZones({ key: requestKey, status: 'error' });
+      });
     return () => {
       active = false;
     };
-  }, []);
+  }, [latitude, longitude, requestKey]);
+
+  const loaded = zones?.key === requestKey ? zones : null;
+  const zoneStatus = loaded?.status ?? 'loading';
+  const zoneData = loaded?.status === 'done' ? loaded.data : null;
+  const areas = zoneData ? toRiskAreas(zoneData, bounds, widthPx) : [];
+  const basis = zoneData
+    ? zoneData.isExampleData
+      ? '구역·건수는 시연용 예시 데이터예요'
+      : [
+          dataPeriodLabel(zoneData.dataPeriod),
+          zoneData.slot
+            ? `${weekdayLabel(zoneData.slot.weekday)}요일 ${timeSlotLabel(zoneData.slot.timeSlot)} 기준`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+    : null;
 
   useEffect(() => {
     const keyword = query.trim();
@@ -95,18 +181,27 @@ export function MapScreen() {
 
   return (
     <View style={styles.root}>
-      <MapIllustration style={StyleSheet.absoluteFill}>
-        {areas.map((area) => (
-          <RiskAreaShape key={area.id} area={area} />
-        ))}
-        {showCounts
-          ? areas.map((area) => (
-              <CountBubble key={`c-${area.id}`} point={area.badge} count={area.reportCount} />
-            ))
-          : null}
-        <LocationDot point={mapService.currentLocation()} />
-        {selected ? <PlacePin point={PLACE_POINT} label={selected.name} /> : null}
-      </MapIllustration>
+      <View
+        style={StyleSheet.absoluteFill}
+        onLayout={(event) => setWidthPx(event.nativeEvent.layout.width)}
+      >
+        <MapIllustration style={StyleSheet.absoluteFill}>
+          {areas.map((area) => (
+            <RiskAreaShape key={area.id} area={area} />
+          ))}
+          {showCounts
+            ? areas
+                .filter((area) => area.level === 2 && area.reportCount > 0)
+                .map((area) => (
+                  <CountBubble key={`c-${area.id}`} point={area.badge} count={area.reportCount} />
+                ))
+            : null}
+          {isInside(current, bounds) ? <LocationDot point={project(current, bounds)} /> : null}
+          {selected && isInside(selected.coordinate, bounds) ? (
+            <PlacePin point={project(selected.coordinate, bounds)} label={selected.name} />
+          ) : null}
+        </MapIllustration>
+      </View>
 
       <SafeAreaView edges={['top']} style={styles.top} pointerEvents="box-none">
         <View style={styles.searchBar}>
@@ -230,7 +325,7 @@ export function MapScreen() {
               {selected.name}
             </AppText>
             <AppText variant="caption" tone="secondary">
-              {selected.address} · 예시 위치
+              {selected.address}
             </AppText>
             <AppText variant="caption" tone="body">
               {selected.isSupportedRegion
@@ -239,8 +334,28 @@ export function MapScreen() {
             </AppText>
           </View>
         ) : null}
+        {zoneStatus === 'error' ? (
+          <View style={styles.zoneError} accessibilityRole="alert">
+            <AppText variant="caption" weight="bold" style={styles.flex}>
+              위험 구역을 불러오지 못했어요
+            </AppText>
+            <Pressable
+              onPress={() => setZoneRetryKey((key) => key + 1)}
+              hitSlop={8}
+              accessibilityRole="button"
+            >
+              <AppText variant="caption" weight="bold" tone="primary">
+                다시 시도
+              </AppText>
+            </Pressable>
+          </View>
+        ) : null}
         <AppText variant="micro" tone="secondary" style={styles.note}>
-          구역·건수는 시연용 예시 데이터예요
+          {zoneStatus === 'loading'
+            ? '위험 구역을 불러오고 있어요'
+            : basis
+              ? `${basis} · 칸이 없다고 안전하다는 뜻은 아니에요`
+              : ' '}
         </AppText>
       </View>
     </View>
@@ -355,5 +470,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     boxShadow: shadows.floating,
   },
-  note: { alignSelf: 'center', minHeight: touchTarget / 3 },
+  note: { alignSelf: 'center', minHeight: touchTarget / 3, textAlign: 'center' },
+  zoneError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    boxShadow: shadows.floating,
+  },
 });

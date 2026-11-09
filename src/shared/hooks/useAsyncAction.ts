@@ -1,6 +1,9 @@
 import { useState } from 'react';
 
-export function useAsyncAction() {
+const DEFAULT_ERROR = '처리하지 못했어요. 다시 시도해 주세요.';
+
+/** 비동기 동작의 진행·오류 상태. describe로 오류별 문구를 정할 수 있다. */
+export function useAsyncAction(describe?: (error: unknown) => string) {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -10,8 +13,8 @@ export function useAsyncAction() {
     setError(null);
     try {
       await action();
-    } catch {
-      setError('처리하지 못했어요. 다시 시도해 주세요.');
+    } catch (cause) {
+      setError(describe ? describe(cause) : DEFAULT_ERROR);
     } finally {
       setIsRunning(false);
     }

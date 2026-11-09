@@ -3,6 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createInitialDevice,
   createInitialSession,
+  requiredAgreements,
+  type AgreementType,
   type DemoDeviceState,
   type SessionSnapshot,
 } from '@/shared/types/session';
@@ -66,6 +68,12 @@ export function parseSession(raw: string | null): SessionSnapshot {
   return {
     ...(value as unknown as Omit<SessionSnapshot, 'device'>),
     device: parseDevice(value.device),
+    missingAgreements: Array.isArray(value.missingAgreements)
+      ? value.missingAgreements.filter((type): type is AgreementType =>
+          requiredAgreements.includes(type as AgreementType),
+        )
+      : [],
+    ownerId: typeof value.ownerId === 'string' ? value.ownerId : null,
   };
 }
 

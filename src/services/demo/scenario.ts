@@ -7,7 +7,8 @@ export interface DemoScenario {
   login: 'success' | 'fail-once';
   vehicleList: 'normal' | 'empty' | 'fail-once';
   vehicleRegister: 'success' | 'fail-once';
-  locate: 'yongin' | 'outside' | 'unavailable';
+  /** GPS 결과. weak는 정확도 32m(직접 확정), poor는 80m(GPS 미사용). */
+  locate: 'yongin' | 'yongin-weak' | 'yongin-poor' | 'outside' | 'unavailable';
   analysis: AnalysisStatus | 'error-once';
   /** 주변 주차장 조회 결과. far-only는 500m 안에는 없고 1km 안에만 있다. */
   parkingLots: 'normal' | 'far-only' | 'none';

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { isApiMode } from '@/services';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
 import { IconButton } from '@/shared/components/IconButton';
@@ -40,14 +41,60 @@ function ReportMap({ status, zoneLabel }: { status: AnalysisStatus; zoneLabel?: 
   );
 }
 
-/** 분석 결과·리포트. 기록 id로 저장된 결과를 보여준다. */
+type DetailState = 'idle' | 'loading' | 'not-found' | 'error';
+
+/** 주소는 서버가 응답 뒤에 채우므로 상세를 한 번 더 읽는다(명세 4절). */
+const ADDRESS_REFETCH_MS = 3000;
+
+/**
+ * 분석 결과·리포트(07 상세). 기록 id로 저장된 결과를 바로 보여주고,
+ * 서버 연결 시 GET /parking-events/{id}로 근거·신고 집중 시간·주소를 채운다.
+ */
 export function AnalysisResultScreen() {
   const router = useRouter();
   const { recordId } = useLocalSearchParams<{ recordId?: string }>();
-  const { records, isRestoring, reanalyze, reanalyzingRecordId, recordsError, refreshRecords } =
-    useParking();
+  const {
+    records,
+    isRestoring,
+    reanalyze,
+    reanalyzingRecordId,
+    recordsError,
+    refreshRecords,
+    loadRecordDetail,
+  } = useParking();
   const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
+  const [detailKey, setDetailKey] = useState(0);
+  const [loaded, setLoaded] = useState<{ key: string; state: DetailState } | null>(null);
+  const requestKey = `${recordId ?? ''}:${detailKey}`;
+  const detail: DetailState = !isApiMode
+    ? 'idle'
+    : loaded?.key === requestKey
+      ? loaded.state
+      : 'loading';
   const record = records.find((item) => item.id === recordId);
+
+  useEffect(() => {
+    if (!isApiMode || !recordId) return;
+    let active = true;
+    let refetch: ReturnType<typeof setTimeout> | undefined;
+    loadRecordDetail(recordId)
+      .then((result) => {
+        if (!active) return;
+        setLoaded({ key: requestKey, state: result === 'not-found' ? 'not-found' : 'idle' });
+        if (result === 'loaded') {
+          refetch = setTimeout(() => {
+            void loadRecordDetail(recordId).catch(() => undefined);
+          }, ADDRESS_REFETCH_MS);
+        }
+      })
+      .catch(() => {
+        if (active) setLoaded({ key: requestKey, state: 'error' });
+      });
+    return () => {
+      active = false;
+      if (refetch) clearTimeout(refetch);
+    };
+  }, [recordId, loadRecordDetail, requestKey]);
   const viewedRiskId =
     record && (record.status === 'level-1' || record.status === 'level-2') ? record.id : null;
 
@@ -61,7 +108,7 @@ export function AnalysisResultScreen() {
     else router.replace('/home');
   }
 
-  if (isRestoring) {
+  if (isRestoring || (!record && detail === 'loading')) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={colors.primary} />
@@ -70,22 +117,28 @@ export function AnalysisResultScreen() {
   }
 
   if (!record) {
+    const failed = detail === 'error' || (!isApiMode && recordsError);
     return (
       <SafeAreaView style={styles.fallback}>
         <StateView
           icon="document-text-outline"
-          title={recordsError ? '기록을 불러오지 못했어요' : '결과를 찾을 수 없어요'}
+          title={failed ? '기록을 불러오지 못했어요' : '결과를 찾을 수 없어요'}
           description={
-            recordsError
+            failed
               ? '저장된 기록은 그대로 있어요. 다시 시도해 주세요.'
-              : '홈에서 다시 확인해 주세요.'
+              : '내 기록 목록에서 다시 확인해 주세요.'
           }
           actions={
             <>
-              {recordsError ? (
-                <Button label="다시 시도" onPress={() => void refreshRecords()} />
+              {failed ? (
+                <Button
+                  label="다시 시도"
+                  onPress={() =>
+                    isApiMode ? setDetailKey((key) => key + 1) : void refreshRecords()
+                  }
+                />
               ) : null}
-              <Button label="홈으로" variant="ghost" onPress={() => router.replace('/home')} />
+              <Button label="기록으로" variant="ghost" onPress={() => router.replace('/history')} />
             </>
           }
         />

@@ -68,7 +68,9 @@ export function LocationConfirmScreen() {
   }, [progress, lastCompleted, isRestoring, router]);
 
   // 횡단보도 응답 대기·분석 중에는 Android 뒤로 가기를 막는다.
-  const locked = progress?.phase === 'awaiting-crosswalk-answer' || progress?.phase === 'analyzing';
+  const locked =
+    progress?.phase === 'awaiting-crosswalk-answer' ||
+    (progress?.phase === 'analyzing' && !parking.analysisError);
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener('hardwareBackPress', () => locked);
@@ -108,7 +110,7 @@ export function LocationConfirmScreen() {
 
   const accuracyLabel =
     progress.phase === 'confirming-location'
-      ? `GPS 정확도 ±${progress.accuracyMeters}m`
+      ? `GPS 정확도 ±${progress.accuracyMeters}m${progress.autoConfirm === false ? ' · 직접 확정' : ''}`
       : progress.phase === 'selecting-location-manually'
         ? '위치 신호 없음'
         : progress.phase === 'locating' || progress.phase === 'suspected'
@@ -131,7 +133,7 @@ export function LocationConfirmScreen() {
             disabled={progress.phase === 'awaiting-crosswalk-answer'}
             onDrop={(dx, dy) => {
               const origin = originRef.current?.id === place.id ? originRef.current : place;
-              parking.adjustPlace(adjustedPlace(origin, dx, dy));
+              parking.adjustPlace(adjustedPlace(origin, dx, dy), 'pin');
             }}
           />
         ) : null}
@@ -233,11 +235,25 @@ function SheetContent({ goHome }: { goHome: () => void }) {
               {progress.place.address}
             </AppText>
           </View>
-          <TimerGauge
-            key={progress.timer.mode === 'running' ? progress.timer.deadline : 'paused'}
-            timer={progress.timer}
-            onExtend={parking.extendLocationTimer}
-          />
+          {progress.notice ? (
+            <Notice
+              tone="warning"
+              title="위치를 다시 확인해 주세요"
+              description={progress.notice}
+            />
+          ) : null}
+          {progress.autoConfirm === false ? (
+            // 정확도 15m 초과(50m 이하)는 자동 확정 없이 직접 확정한다(명세 8절 #2).
+            <ManualConfirmHint
+              message={`GPS 오차가 ±${progress.accuracyMeters}m라 직접 확인한 위치로 판정해요`}
+            />
+          ) : (
+            <TimerGauge
+              key={progress.timer.mode === 'running' ? progress.timer.deadline : 'paused'}
+              timer={progress.timer}
+              onExtend={parking.extendLocationTimer}
+            />
+          )}
           <View style={styles.actions}>
             <Button
               label="다시 측정하기"
@@ -273,9 +289,16 @@ function SheetContent({ goHome }: { goHome: () => void }) {
           >
             <ManualPlacePicker
               selectedId={progress.place?.id ?? null}
-              onSelect={parking.adjustPlace}
+              onSelect={(place) => parking.adjustPlace(place, 'list')}
             />
           </ScrollView>
+          {progress.notice ? (
+            <Notice
+              tone="warning"
+              title="위치를 다시 확인해 주세요"
+              description={progress.notice}
+            />
+          ) : null}
           {outside ? (
             <Notice
               tone="warning"
@@ -319,6 +342,9 @@ function SheetContent({ goHome }: { goHome: () => void }) {
       );
 
     case 'analyzing':
+      if (parking.analysisError) {
+        return <AnalysisErrorBlock goHome={goHome} />;
+      }
       if (parking.analysisSaveError) {
         return (
           <View style={styles.block}>
@@ -342,6 +368,48 @@ function SheetContent({ goHome }: { goHome: () => void }) {
         </View>
       );
   }
+}
+
+/** 서버가 판정 요청을 저장하지 못했을 때. 다시 보내도 같은 요청 키라 중복 저장되지 않는다. */
+function AnalysisErrorBlock({ goHome }: { goHome: () => void }) {
+  const router = useRouter();
+  const parking = useParking();
+  const error = parking.analysisError;
+  if (!error) return null;
+  const title =
+    error.kind === 'consent'
+      ? '위치기반서비스 동의가 필요해요'
+      : error.kind === 'vehicle'
+        ? '등록된 차량을 찾지 못했어요'
+        : error.kind === 'clock'
+          ? '휴대폰 시간을 확인해 주세요'
+          : '결과를 받지 못했어요';
+  return (
+    <View style={styles.block} accessibilityLiveRegion="polite">
+      <Notice title={title} description={error.message} />
+      <View style={styles.actions}>
+        {error.kind === 'vehicle' ? (
+          <Button
+            label="차량 다시 등록"
+            variant="neutral"
+            onPress={() => router.push('/settings/vehicle')}
+            style={styles.secondaryAction}
+          />
+        ) : (
+          <Button
+            label="홈으로"
+            variant="neutral"
+            onPress={goHome}
+            style={styles.secondaryAction}
+          />
+        )}
+        <Button label="다시 시도" onPress={parking.retryAnalysis} style={styles.primaryAction} />
+      </View>
+      <AppText variant="micro" tone="secondary">
+        위치와 응답은 그대로 있어요. 다시 보내도 같은 주차로 한 번만 저장돼요.
+      </AppText>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

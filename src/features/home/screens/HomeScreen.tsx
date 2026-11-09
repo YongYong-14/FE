@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,6 +11,7 @@ import {
   useParking,
   type ParkingProgress,
 } from '@/features/parking';
+import { isApiMode } from '@/services';
 import { AppText } from '@/shared/components/AppText';
 import { Badge, type BadgeTone } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
@@ -21,6 +22,7 @@ import { BottomBanner, Notice } from '@/shared/components/Notice';
 import { Card, IconTile, SheetSurface } from '@/shared/components/Surface';
 import { colors, radii, shadows, spacing } from '@/shared/theme/tokens';
 import { hasDetectionPermissions } from '@/shared/types/session';
+import { dataPeriodLabel } from '@/shared/utils/format';
 
 const MARKER = { left: '60%', top: '40%' } as const;
 
@@ -65,12 +67,32 @@ function progressCopy(progress: ParkingProgress): {
 
 export function HomeScreen() {
   const router = useRouter();
-  const { snapshot, updateDevice } = useSession();
-  const { progress, records, recordsError, refreshRecords, cancelNotice, clearCancelNotice } =
-    useParking();
+  const { snapshot, updateDevice, syncVehicle } = useSession();
+  const {
+    progress,
+    records,
+    recordsError,
+    refreshRecords,
+    cancelNotice,
+    clearCancelNotice,
+    latest: latestInfo,
+  } = useParking();
   const { device, vehicle } = snapshot;
-  const latest = records[0];
+  // 최근 주차는 서버의 GET /parking-events/latest가 기준이다(데모는 기기 기록).
+  const latest =
+    (latestInfo?.recordId ? records.find((record) => record.id === latestInfo.recordId) : null) ??
+    records[0];
+  const periodLabel = dataPeriodLabel(latestInfo?.dataPeriod);
   const permitted = hasDetectionPermissions(device);
+
+  // 홈에 올 때마다 서버의 최근 주차·등록 차량을 다시 확인한다(04 홈).
+  useFocusEffect(
+    useCallback(() => {
+      if (!isApiMode) return;
+      void refreshRecords();
+      void syncVehicle().catch(() => undefined);
+    }, [refreshRecords, syncVehicle]),
+  );
 
   useEffect(() => {
     if (!cancelNotice) return;
@@ -190,6 +212,11 @@ export function HomeScreen() {
                   <AppText variant="subtitle" weight="bold">
                     {latest.place.address}
                   </AppText>
+                  {periodLabel ? (
+                    <AppText variant="micro" tone="secondary">
+                      {periodLabel} 기준
+                    </AppText>
+                  ) : null}
                   <View style={styles.recentFoot}>
                     <AppText variant="caption" tone="secondary" style={styles.flex}>
                       {formatParkedAt(latest.parkedAt)}

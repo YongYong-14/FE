@@ -1,10 +1,17 @@
 import { useRouter } from 'expo-router';
-import { useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSession } from '@/features/auth';
 import { useAppReset } from '@/providers/useAppReset';
+import {
+  describeError,
+  isApiMode,
+  notificationSettingsService,
+  systemService,
+  type NotificationSettings,
+} from '@/services';
 import { AppModal } from '@/shared/components/AppModal';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
@@ -73,12 +80,132 @@ function Row({
   );
 }
 
+type SettingKey = 'cautionEnabled' | 'nightEnabled';
+
+/** 알림 설정(GET·PATCH /notification-settings). 1단계 위험 알림은 끌 수 없다. */
+function NotificationGroup() {
+  const [settings, setSettings] = useState<NotificationSettings | null>(null);
+  const [status, setStatus] = useState<'loading' | 'done' | 'error'>('loading');
+  const [saving, setSaving] = useState<SettingKey | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSettings = useCallback(
+    () =>
+      notificationSettingsService
+        .get()
+        .then((value) => {
+          setSettings(value);
+          setStatus('done');
+        })
+        .catch(() => setStatus('error')),
+    [],
+  );
+
+  useEffect(() => {
+    void fetchSettings();
+  }, [fetchSettings]);
+
+  function retry() {
+    setStatus('loading');
+    void fetchSettings();
+  }
+
+  async function toggle(key: SettingKey, value: boolean) {
+    if (!settings || saving) return;
+    const previous = settings;
+    setSettings({ ...settings, [key]: value });
+    setSaving(key);
+    setError(null);
+    try {
+      setSettings(await notificationSettingsService.update({ [key]: value }));
+    } catch (cause) {
+      setSettings(previous);
+      setError(describeError(cause, '설정을 바꾸지 못했어요. 다시 시도해 주세요.'));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <Group title="알림">
+      {status === 'loading' ? (
+        <View style={styles.row}>
+          <ActivityIndicator color={colors.primary} />
+          <AppText variant="caption" tone="secondary">
+            알림 설정을 불러오고 있어요
+          </AppText>
+        </View>
+      ) : status === 'error' || !settings ? (
+        <Row
+          title="알림 설정을 불러오지 못했어요"
+          description="눌러서 다시 시도해요"
+          last
+          onPress={retry}
+        />
+      ) : (
+        <>
+          <Row
+            title="위험(1단계) 알림"
+            description="소화전·버스정류소 주변은 항상 알려요"
+            trailing={
+              <Switch
+                accessibilityLabel="위험 알림, 항상 켜짐"
+                value
+                disabled
+                trackColor={{ true: colors.primary, false: colors.line }}
+                thumbColor={colors.surface}
+              />
+            }
+          />
+          <Row
+            title="주의(2단계) 알림"
+            description="신고가 몰리는 곳을 알려요. 상위 2% 구역은 꺼도 알려요"
+            trailing={
+              <Switch
+                accessibilityLabel="주의 알림"
+                value={settings.cautionEnabled}
+                disabled={saving !== null}
+                onValueChange={(value) => void toggle('cautionEnabled', value)}
+                trackColor={{ true: colors.primary, false: colors.line }}
+                thumbColor={colors.surface}
+              />
+            }
+          />
+          <Row
+            title="야간 주의 알림"
+            description="22시~다음 날 7시에도 2단계를 알려요"
+            last={!error}
+            trailing={
+              <Switch
+                accessibilityLabel="야간 주의 알림"
+                value={settings.nightEnabled}
+                disabled={saving !== null}
+                onValueChange={(value) => void toggle('nightEnabled', value)}
+                trackColor={{ true: colors.primary, false: colors.line }}
+                thumbColor={colors.surface}
+              />
+            }
+          />
+          {error ? (
+            <View style={styles.row}>
+              <AppText variant="caption" tone="danger" accessibilityRole="alert">
+                {error}
+              </AppText>
+            </View>
+          ) : null}
+        </>
+      )}
+    </Group>
+  );
+}
+
 export function MyPageScreen() {
   const router = useRouter();
-  const { snapshot, signOut, setSurveyEnabled, isSaving } = useSession();
+  const { snapshot, signOut, withdraw, setSurveyEnabled, isSaving } = useSession();
   const reset = useAppReset();
   const { run, isRunning, error } = useAsyncAction();
   const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const permitted = hasDetectionPermissions(snapshot.device);
   const busy = isRunning || isSaving;
@@ -99,7 +226,7 @@ export function MyPageScreen() {
               {snapshot.user?.nickname} 님
             </AppText>
             <AppText variant="micro" tone="secondary">
-              카카오 계정으로 로그인됨 (데모)
+              {isApiMode ? '카카오 계정으로 로그인됨' : '카카오 계정으로 로그인됨 (데모)'}
             </AppText>
           </View>
         </View>
@@ -127,6 +254,8 @@ export function MyPageScreen() {
             accessibilityLabel="등록 차량 변경"
           />
         </View>
+
+        <NotificationGroup />
 
         <Group title="설정">
           <Row
@@ -182,7 +311,7 @@ export function MyPageScreen() {
           </AppText>
         ) : null}
         <AppText variant="micro" tone="secondary">
-          버전 0.1.0 · 프론트엔드 데모
+          버전 0.1.0 · {isApiMode ? `서버 연결 ${systemService.baseUrl ?? ''}` : '프론트엔드 데모'}
         </AppText>
       </ScrollView>
 
@@ -195,12 +324,20 @@ export function MyPageScreen() {
             회원 탈퇴하시겠어요?
           </AppText>
           <AppText variant="body" tone="body">
-            이 기기에 보관한 데모 계정 정보와 지금까지의 주차 기록이 모두 삭제되고, 되돌릴 수
-            없어요.
+            {isApiMode
+              ? '서버에 저장된 계정·차량·주차 기록·동의 이력이 모두 바로 삭제되고, 되돌릴 수 없어요.'
+              : '이 기기에 보관한 데모 계정 정보와 지금까지의 주차 기록이 모두 삭제되고, 되돌릴 수 없어요.'}
           </AppText>
           <AppText variant="caption" tone="secondary">
-            실제 카카오 계정·서버 데이터는 바뀌지 않아요.
+            {isApiMode
+              ? '카카오 계정 연결도 함께 끊어요.'
+              : '실제 카카오 계정·서버 데이터는 바뀌지 않아요.'}
           </AppText>
+          {withdrawError ? (
+            <AppText variant="caption" tone="danger" accessibilityRole="alert">
+              {withdrawError}
+            </AppText>
+          ) : null}
         </View>
         <Button
           label="탈퇴하기"
@@ -208,10 +345,17 @@ export function MyPageScreen() {
           loading={withdrawing}
           onPress={() => {
             setWithdrawing(true);
-            void reset().finally(() => {
-              setWithdrawing(false);
-              setConfirmWithdraw(false);
-            });
+            setWithdrawError(null);
+            // 서버 삭제(DELETE /me)가 성공한 뒤에만 기기 데이터를 지운다.
+            void withdraw()
+              .then(async () => {
+                await reset();
+                setConfirmWithdraw(false);
+              })
+              .catch((cause: unknown) =>
+                setWithdrawError(describeError(cause, '탈퇴하지 못했어요. 다시 시도해 주세요.')),
+              )
+              .finally(() => setWithdrawing(false));
           }}
         />
         <Button

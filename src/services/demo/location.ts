@@ -12,6 +12,13 @@ export const demoLocationService: LocationService = {
     if (mode === 'outside') {
       return { kind: 'located', place: { ...demoOutsidePlace }, accuracyMeters: 12 };
     }
+    // 정확도 단계: 15m 이내 자동 확정 / 15~50m 직접 확정 / 50m 초과 GPS 미사용(명세 8절 #2).
+    if (mode === 'yongin-weak') {
+      return { kind: 'located', place: { ...demoGpsPlace }, accuracyMeters: 32 };
+    }
+    if (mode === 'yongin-poor') {
+      return { kind: 'located', place: { ...demoGpsPlace }, accuracyMeters: 80 };
+    }
     return { kind: 'located', place: { ...demoGpsPlace }, accuracyMeters: 8 };
   },
 };

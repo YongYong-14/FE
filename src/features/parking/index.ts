@@ -1,4 +1,5 @@
 // 주차 기능 공개 진입점. 다른 기능은 이 파일만 참조한다.
+export { AlertHost } from './components/AlertHost';
 export { ParkingDemoPanel } from './components/ParkingDemoPanel';
 export { ParkingTouchGuard } from './components/ParkingTouchGuard';
 export { ParkingGlyph, ReportView, statusTone } from './components/ReportView';

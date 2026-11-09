@@ -4,8 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ParkingLotSortDropdown } from '../components/ParkingLotSortDropdown';
 import { sortParkingLots, type ParkingLotSort } from '../utils/sortParkingLots';
+import { useSession } from '@/features/auth';
 import { useParking } from '@/features/parking';
-import { parkingLotService } from '@/services';
+import { isApiError, mapService, parkingLotService } from '@/services';
 import { AppModal } from '@/shared/components/AppModal';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
@@ -15,17 +16,29 @@ import { SheetSurface } from '@/shared/components/Surface';
 import { MapIllustration, ParkingMarker } from '@/shared/map/MapIllustration';
 import { LotPin } from '@/shared/map/MapMarkers';
 import { colors, radii, shadows, spacing, touchTarget } from '@/shared/theme/tokens';
-import type { ParkingLot, ParkingLotType } from '@/shared/types/map';
+import type { ParkingFeeType, ParkingLot, ParkingLotType } from '@/shared/types/map';
+import { boundsAround, isInside, project } from '@/shared/utils/geo';
+import { hoursLabel } from '@/shared/utils/hours';
 
-const ORIGIN = { left: '51%', top: '45%' } as const;
 const typeLabel: Record<ParkingLotType, string> = {
   public: '공영',
-  'street-paid': '노상 유료',
   private: '민영',
+  attached: '부설',
+};
+
+const feeLabel: Record<ParkingFeeType, string> = {
+  FREE: '무료',
+  PAID: '유료',
+  MIXED: '유·무료 혼합',
 };
 
 type Radius = 500 | 1000;
 type Preview = { kind: 'share' | 'route' | 'external'; lot?: ParkingLot } | null;
+type LoadError = 'consent' | 'failed' | null;
+
+const distanceText = (lot: ParkingLot) => `${Math.round(lot.distanceMeters)}m`;
+const feeText = (lot: ParkingLot) =>
+  lot.fee ?? (lot.feeType ? feeLabel[lot.feeType] : '요금 정보 없음');
 
 function Chip({
   label,
@@ -56,63 +69,76 @@ function Chip({
 }
 
 /**
- * 주변 주차장. 주차 위치 기준 반경·필터를 적용하고 목록과 핀을 함께 갱신한다.
+ * 주변 주차장(GET /parking-lots/nearby). 최근 주차 위치(없으면 현재 위치) 기준 직선 거리순이다.
+ * 500m 안에 없으면 서버가 1km까지 넓혀 찾는다. 운영 중·공영·유료 필터는 앱이 응답으로 거른다.
  * 공유·길안내·외부 지도는 앱 내부 미리보기만 보여준다.
  */
 export function ParkingLotsScreen() {
   const list = useRef<ComponentRef<typeof ScrollView>>(null);
-  const { records } = useParking();
-  const latest = records[0];
+  const { requireAgreement } = useSession();
+  const { records, latest } = useParking();
+  const parkedAt =
+    latest?.coordinate ?? records.find((record) => record.place.coordinate)?.place.coordinate;
+  const origin = parkedAt ?? mapService.currentLocation();
   const [radius, setRadius] = useState<Radius>(500);
   const [openOnly, setOpenOnly] = useState(true);
-  const [types, setTypes] = useState<ParkingLotType[]>([]);
+  const [publicOnly, setPublicOnly] = useState(false);
+  const [paidOnly, setPaidOnly] = useState(false);
   const [sort, setSort] = useState<ParkingLotSort>('distance');
   const [lots, setLots] = useState<ParkingLot[]>([]);
-  const [loadedRadius, setLoadedRadius] = useState<Radius | null>(null);
-  const [error, setError] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [isExample, setIsExample] = useState(false);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [error, setError] = useState<LoadError>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const { latitude, longitude } = origin;
+  const requestKey = `${latitude},${longitude},${radius},${reloadKey}`;
 
   useEffect(() => {
     let active = true;
     parkingLotService
-      .search(radius)
-      .then((items) => {
+      .search({ latitude, longitude }, radius)
+      .then((result) => {
         if (!active) return;
-        setLots(items);
-        setError(false);
-        setLoadedRadius(radius);
+        setLots(result.lots);
+        setExpanded(result.expanded);
+        setIsExample(result.isExampleData);
+        setError(null);
+        setLoadedKey(requestKey);
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         if (!active) return;
-        setError(true);
-        setLoadedRadius(radius);
+        setError(isApiError(cause, 'LOCATION_CONSENT_REQUIRED') ? 'consent' : 'failed');
+        setLoadedKey(requestKey);
       });
     return () => {
       active = false;
     };
-  }, [radius, reloadKey]);
+  }, [latitude, longitude, radius, requestKey]);
 
-  const loading = loadedRadius !== radius;
+  const loading = loadedKey !== requestKey;
+  const effectiveRadius: Radius = expanded ? 1000 : radius;
   const visible = useMemo(
     () =>
       sortParkingLots(
         lots.filter(
-          (lot) => (!openOnly || lot.isOpen) && (types.length === 0 || types.includes(lot.type)),
+          (lot) =>
+            (!openOnly || lot.isOpen === true) &&
+            (!publicOnly || lot.type === 'public') &&
+            (!paidOnly || lot.feeType === 'PAID' || lot.feeType === 'MIXED'),
         ),
         sort,
       ),
-    [lots, openOnly, types, sort],
+    [lots, openOnly, publicOnly, paidOnly, sort],
   );
   const selected = visible.find((lot) => lot.id === selectedId) ?? visible[0];
-  const filtered = openOnly || types.length > 0;
-
-  function toggleType(type: ParkingLotType) {
-    setTypes((current) =>
-      current.includes(type) ? current.filter((item) => item !== type) : [...current, type],
-    );
-  }
+  const filtered = openOnly || publicOnly || paidOnly;
+  const bounds = useMemo(
+    () => boundsAround({ latitude, longitude }, effectiveRadius * 1.15),
+    [latitude, longitude, effectiveRadius],
+  );
 
   function changeRadius(next: Radius) {
     if (next === radius) return;
@@ -123,27 +149,29 @@ export function ParkingLotsScreen() {
   return (
     <View style={styles.root}>
       <MapIllustration style={styles.map}>
-        <ParkingMarker left={ORIGIN.left} top={ORIGIN.top} />
-        {visible.map((lot) => (
-          <LotPin
-            key={lot.id}
-            point={lot.position}
-            selected={lot.id === selected?.id}
-            caption={`${lot.distanceMeters}m`}
-            label={`${lot.name}, 직선 거리 ${lot.distanceMeters}m`}
-            onPress={() => setSelectedId(lot.id)}
-          />
-        ))}
+        <ParkingMarker left="50%" top="50%" />
+        {visible
+          .filter((lot) => isInside(lot.coordinate, bounds))
+          .map((lot) => (
+            <LotPin
+              key={lot.id}
+              point={project(lot.coordinate, bounds)}
+              selected={lot.id === selected?.id}
+              caption={distanceText(lot)}
+              label={`${lot.name}, 직선 거리 ${distanceText(lot)}`}
+              onPress={() => setSelectedId(lot.id)}
+            />
+          ))}
       </MapIllustration>
 
       <SafeAreaView edges={['top']} style={styles.top} pointerEvents="box-none">
         <View style={styles.basis}>
           <View style={styles.basisDot} />
           <AppText variant="label" weight="bold" numberOfLines={1}>
-            {latest ? '내 차 주차 위치 기준' : '현재 위치 기준'}
+            {parkedAt ? '내 차 주차 위치 기준' : '현재 위치 기준'}
           </AppText>
           <AppText variant="label" tone="secondary">
-            반경 {radius === 500 ? '500m' : '1km'}
+            반경 {effectiveRadius === 500 ? '500m' : '1km'}
           </AppText>
         </View>
       </SafeAreaView>
@@ -180,13 +208,13 @@ export function ParkingLotsScreen() {
                 key={value}
                 onPress={() => changeRadius(value)}
                 accessibilityRole="radio"
-                accessibilityState={{ checked: radius === value }}
-                style={[styles.segmentItem, radius === value && styles.segmentSelected]}
+                accessibilityState={{ checked: effectiveRadius === value }}
+                style={[styles.segmentItem, effectiveRadius === value && styles.segmentSelected]}
               >
                 <AppText
                   variant="label"
                   weight="bold"
-                  style={{ color: radius === value ? colors.ink : colors.textSecondary }}
+                  style={{ color: effectiveRadius === value ? colors.ink : colors.textSecondary }}
                 >
                   {value === 500 ? '500m' : '1km'}
                 </AppText>
@@ -200,14 +228,10 @@ export function ParkingLotsScreen() {
           />
           <Chip
             label="공영"
-            selected={types.includes('public')}
-            onPress={() => toggleType('public')}
+            selected={publicOnly}
+            onPress={() => setPublicOnly((value) => !value)}
           />
-          <Chip
-            label="노상 유료"
-            selected={types.includes('street-paid')}
-            onPress={() => toggleType('street-paid')}
-          />
+          <Chip label="유료" selected={paidOnly} onPress={() => setPaidOnly((value) => !value)} />
         </ScrollView>
 
         <ScrollView ref={list} style={styles.list} contentContainerStyle={styles.listContent}>
@@ -215,6 +239,19 @@ export function ParkingLotsScreen() {
             <View style={styles.loading}>
               <ActivityIndicator color={colors.primary} />
             </View>
+          ) : error === 'consent' ? (
+            <StateView
+              icon="location-outline"
+              title="위치기반서비스 동의가 필요해요"
+              description="주변 주차장을 찾으려면 위치기반서비스 이용약관에 동의해 주세요."
+              actions={
+                <Button
+                  label="동의하러 가기"
+                  size="md"
+                  onPress={() => void requireAgreement('LOCATION_SERVICE')}
+                />
+              }
+            />
           ) : error ? (
             <StateView
               icon="alert-circle-outline"
@@ -225,15 +262,12 @@ export function ParkingLotsScreen() {
                   label="다시 시도"
                   variant="outline"
                   size="md"
-                  onPress={() => {
-                    setLoadedRadius(null);
-                    setReloadKey((key) => key + 1);
-                  }}
+                  onPress={() => setReloadKey((key) => key + 1)}
                 />
               }
             />
           ) : visible.length === 0 ? (
-            radius === 500 ? (
+            effectiveRadius === 500 ? (
               <StateView
                 icon="car-outline"
                 title="500m 안에 조건에 맞는 주차장이 없어요"
@@ -246,20 +280,30 @@ export function ParkingLotsScreen() {
               <StateView
                 icon="car-outline"
                 title={
-                  openOnly
+                  // 서버 결과 자체가 비었는지, 앱 필터로 비었는지 구분한다(명세 5절).
+                  lots.length > 0 && openOnly
                     ? '반경 1km 안에 지금 운영 중인\n주차장이 없어요'
-                    : '반경 1km 안에 주차장이 없어요'
+                    : lots.length > 0
+                      ? '반경 1km 안에 조건에 맞는\n주차장이 없어요'
+                      : '반경 1km 안에 주차장이 없어요'
                 }
-                description="필터를 바꾸거나 지도 앱에서 더 넓은 범위를 찾아보세요."
+                description={
+                  lots.length > 0
+                    ? '필터를 바꾸거나 지도 앱에서 더 넓은 범위를 찾아보세요.'
+                    : expanded
+                      ? '500m 안에 없어 1km까지 찾았지만 없었어요. 지도 앱에서 더 넓은 범위를 찾아보세요.'
+                      : '지도 앱에서 더 넓은 범위를 찾아보세요.'
+                }
                 actions={
                   <>
-                    {filtered ? (
+                    {filtered && lots.length > 0 ? (
                       <Button
                         label="필터 초기화"
                         size="md"
                         onPress={() => {
                           setOpenOnly(false);
-                          setTypes([]);
+                          setPublicOnly(false);
+                          setPaidOnly(false);
                         }}
                       />
                     ) : null}
@@ -274,21 +318,30 @@ export function ParkingLotsScreen() {
               />
             )
           ) : (
-            visible.map((lot, index) => (
-              <LotRow
-                key={lot.id}
-                lot={lot}
-                selected={lot.id === selected?.id}
-                last={index === visible.length - 1}
-                onSelect={() => setSelectedId(lot.id)}
-                onShare={() => setPreview({ kind: 'share', lot })}
-                onRoute={() => setPreview({ kind: 'route', lot })}
-              />
-            ))
+            <>
+              {expanded ? (
+                <AppText variant="caption" tone="body" style={styles.expandedNote}>
+                  500m 안에 없어 1km까지 찾았어요.
+                </AppText>
+              ) : null}
+              {visible.map((lot, index) => (
+                <LotRow
+                  key={lot.id}
+                  lot={lot}
+                  selected={lot.id === selected?.id}
+                  last={index === visible.length - 1}
+                  onSelect={() => setSelectedId(lot.id)}
+                  onShare={() => setPreview({ kind: 'share', lot })}
+                  onRoute={() => setPreview({ kind: 'route', lot })}
+                />
+              ))}
+            </>
           )}
           {!loading && visible.length > 0 ? (
             <AppText variant="micro" tone="secondary" style={styles.note}>
-              거리·요금·운영 상태는 시연용 예시예요.
+              {isExample
+                ? '거리·요금·운영 상태는 시연용 예시예요.'
+                : '직선 거리예요. 요금·운영시간은 공공데이터 기준이라 실제와 다를 수 있어요.'}
             </AppText>
           ) : null}
         </ScrollView>
@@ -319,7 +372,7 @@ function LotRow({
       onPress={onSelect}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityLabel={`${lot.name}, ${typeLabel[lot.type]}, 직선 거리 ${lot.distanceMeters}m, ${lot.fee}${lot.isOpen ? '' : ', 운영 종료'}`}
+      accessibilityLabel={`${lot.name}, ${typeLabel[lot.type]}, 직선 거리 ${distanceText(lot)}, ${feeText(lot)}${lot.isOpen === false ? ', 운영 종료' : ''}`}
       android_ripple={{ color: 'rgba(0,0,0,0.04)' }}
       style={[styles.row, !last && styles.rowDivider]}
     >
@@ -333,13 +386,18 @@ function LotRow({
           {lot.name}
         </AppText>
         <AppText variant="caption" tone="body">
-          {typeLabel[lot.type]} · {lot.distanceMeters}m · {lot.fee}
+          {typeLabel[lot.type]} · {distanceText(lot)} · {feeText(lot)}
         </AppText>
-        {!lot.isOpen ? (
+        {lot.isOpen === false ? (
           <AppText variant="micro" tone="danger">
-            지금은 운영하지 않아요
+            지금은 운영하지 않아요 · {hoursLabel(lot.hours)}
           </AppText>
-        ) : null}
+        ) : (
+          <AppText variant="micro" tone="secondary">
+            {hoursLabel(lot.hours)}
+            {lot.capacity !== null ? ` · ${lot.capacity}면` : ''}
+          </AppText>
+        )}
       </View>
       <Pressable
         onPress={onShare}
@@ -372,9 +430,9 @@ function PreviewModal({ preview, onClose }: { preview: Preview; onClose: () => v
         : '외부 지도 검색 미리보기';
   const lines =
     preview?.kind === 'share' && lot
-      ? [`장소: ${lot.name}`, `주소: ${lot.address}`, `운영: ${lot.hours}`]
+      ? [`장소: ${lot.name}`, `주소: ${lot.address}`, `운영: ${hoursLabel(lot.hours)}`]
       : preview?.kind === 'route' && lot
-        ? ['출발: 내 차 주차 위치', `도착: ${lot.name}`, `직선 거리 ${lot.distanceMeters}m (예시)`]
+        ? ['출발: 내 차 주차 위치', `도착: ${lot.name}`, `직선 거리 ${distanceText(lot)}`]
         : ['검색어: 주차장', '기준: 내 차 주차 위치 주변'];
   return (
     <AppModal visible={Boolean(preview)} onDismiss={onClose}>
@@ -482,6 +540,7 @@ const styles = StyleSheet.create({
   },
   routeButton: { paddingHorizontal: spacing.md + 2 },
   note: { paddingTop: spacing.md },
+  expandedNote: { paddingTop: spacing.sm },
   previewBox: {
     gap: spacing.xs,
     padding: spacing.lg,

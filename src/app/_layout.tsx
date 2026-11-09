@@ -15,12 +15,18 @@ import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
 import { Screen } from '@/shared/components/Screen';
 import { colors } from '@/shared/theme/tokens';
+import { missingAgreementsOf } from '@/shared/types/session';
 
 void SplashScreen.preventAutoHideAsync();
 
 function RootNavigator() {
   const { snapshot, isLoading, loadError, retryLoad } = useSession();
-  const ready = Boolean(snapshot.user && snapshot.onboardingCompleted && snapshot.vehicle);
+  const ready = Boolean(
+    snapshot.user &&
+    missingAgreementsOf(snapshot).length === 0 &&
+    snapshot.onboardingCompleted &&
+    snapshot.vehicle,
+  );
 
   if (isLoading) {
     return (

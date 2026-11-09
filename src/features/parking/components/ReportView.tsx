@@ -19,6 +19,12 @@ export const statusTone: Record<AnalysisStatus, BadgeTone> = {
 
 const canRetry = (status: AnalysisStatus) => status === 'insufficient-data' || status === 'failed';
 
+/** 서버 기록은 판정 시도 횟수로 정하고(FAILED 1회), 원래 제출값이 있어야 같은 요청을 다시 보낼 수 있다. */
+function isRetryable(record: ParkingRecord): boolean {
+  if (record.retryable === undefined) return canRetry(record.status);
+  return record.retryable && Boolean(record.submission);
+}
+
 interface ReportViewProps {
   record: ParkingRecord;
   onFindParking: () => void;
@@ -73,7 +79,7 @@ export function ReportView({
         </Card>
       ) : null}
 
-      {canRetry(report.status) && onReanalyze ? (
+      {isRetryable(record) && onReanalyze ? (
         <View style={styles.retry}>
           <Button
             label="다시 분석하기"
@@ -125,6 +131,11 @@ export function ReportView({
         </Card>
       ) : null}
 
+      {report.notes?.map((note) => (
+        <AppText key={note} variant="micro" tone="secondary" style={styles.disclaimer}>
+          {note}
+        </AppText>
+      ))}
       <AppText variant="micro" tone="secondary" style={styles.disclaimer}>
         {report.isExampleData ? '시연용 예시 데이터예요. ' : ''}공공데이터를 바탕으로 한 참고
         정보이며, 법적 판단이 아니에요.

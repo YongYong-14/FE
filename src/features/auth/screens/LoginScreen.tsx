@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
+import { describeError, isApiMode } from '@/services';
+
 import { useSession } from '../state/SessionProvider';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
@@ -12,8 +14,10 @@ import { colors, spacing } from '@/shared/theme/tokens';
 
 export function LoginScreen() {
   const router = useRouter();
-  const { signIn, isSaving } = useSession();
-  const { run, isRunning, error } = useAsyncAction();
+  const { signIn, isSaving, sessionNotice, clearSessionNotice } = useSession();
+  const { run, isRunning, error } = useAsyncAction((cause) =>
+    describeError(cause, '네트워크 상태를 확인하고 다시 시도해 주세요.'),
+  );
   const busy = isRunning || isSaving;
 
   return (
@@ -24,20 +28,24 @@ export function LoginScreen() {
       footer={
         <View style={styles.bottom}>
           {error ? (
-            <Notice
-              title="카카오 로그인에 실패했어요"
-              description="네트워크 상태를 확인하고 다시 시도해 주세요."
-            />
+            <Notice title="카카오 로그인에 실패했어요" description={error} />
+          ) : sessionNotice ? (
+            <Notice tone="info" title={sessionNotice} />
           ) : null}
           <Button
             label={error ? '다시 시도하기' : '카카오로 시작하기'}
             variant={error ? 'primary' : 'kakao'}
             leading={error ? undefined : <Icon name="chatbubble" color={colors.ink} size={18} />}
-            onPress={() => void run(signIn)}
+            onPress={() => {
+              clearSessionNotice();
+              void run(signIn);
+            }}
             loading={busy}
           />
           <AppText variant="micro" tone="secondary" style={styles.center}>
-            데모 계정으로 시작해요. 실제 카카오 인증은 연결되지 않았어요.
+            {isApiMode
+              ? '카카오 계정으로 로그인하고 서버에 연결해요.'
+              : '데모 계정으로 시작해요. 실제 카카오 인증은 연결되지 않았어요.'}
           </AppText>
           <View style={styles.links}>
             <AppText variant="micro" tone="secondary" style={styles.center}>

@@ -57,13 +57,13 @@ export function TimerGauge({ timer, onExtend }: { timer: LocationTimer; onExtend
   );
 }
 
-/** GPS 실패로 수동 지정할 때의 표시. 타이머는 꺼져 있다. */
-export function ManualConfirmHint() {
+/** GPS 실패·정확도 부족으로 직접 확정할 때의 표시. 타이머는 꺼져 있다. */
+export function ManualConfirmHint({ message = '직접 고른 위치로 판정해요' }: { message?: string }) {
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
         <AppText variant="caption" tone="secondary" style={styles.flex}>
-          직접 고른 위치로 판정해요
+          {message}
         </AppText>
         <AppText variant="caption" weight="bold" tone="primary">
           자동 확정 꺼짐

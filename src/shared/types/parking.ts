@@ -1,6 +1,7 @@
-import type { SelectedPlace } from './location';
+import type { Coordinate, SelectedPlace } from './location';
+import type { DataPeriod } from './map';
 
-// 프론트 내부 연결용 자료형이다. 실제 API 계약이 아니다.
+// 프론트 내부 연결용 자료형이다. 서버 응답은 services/api에서 이 형태로 바꾼다.
 
 export type AnalysisStatus =
   'level-1' | 'level-2' | 'no-risk-found' | 'insufficient-data' | 'failed';
@@ -15,6 +16,32 @@ export type ParkingPhase =
   | 'selecting-location-manually'
   | 'awaiting-crosswalk-answer'
   | 'analyzing';
+
+/** 위치 확정 방법. CONFIRMED(그대로), ADJUSTED(핀 이동), AUTO(시간 만료 자동 확정). */
+export type ConfirmationMethod = 'CONFIRMED' | 'ADJUSTED' | 'AUTO';
+
+/** 기기 GPS 측정값. */
+export interface GpsFix {
+  coordinate: Coordinate;
+  accuracyMeters: number;
+}
+
+/**
+ * 주차 판정 요청에 쓰는 앱 쪽 제출값. 같은 주차를 다시 보낼 때 그대로 재사용한다(멱등 키 포함).
+ * 횡단보도 응답은 앱 안에서만 쓰고 여기에 넣지 않는다.
+ */
+export interface ParkingSubmission {
+  clientEventId: string;
+  vehicleId: string;
+  /** 블루투스 연결 해제 시각 = 판정 기준 시각. */
+  detectedAt: string;
+  confirmedAt: string;
+  confirmationMethod: ConfirmationMethod;
+  /** 기기 GPS. 없으면 null(자동 확정 불가). */
+  gps: GpsFix | null;
+  confirmed: Coordinate;
+  remeasureCount: number;
+}
 
 export interface ReportEvidence {
   label: string;
@@ -37,28 +64,65 @@ export interface ReportChart {
 
 export interface AnalysisReport {
   status: AnalysisStatus;
-  /** 배지 문구. 예: "1단계 · 절대금지구역" */
+  /** 배지 문구. 예: "1단계 · 소화전 주변" */
   badge: string;
   headline: string;
   summary?: string;
   evidence: ReportEvidence[];
   stats: ReportStat[];
   chart?: ReportChart;
-  /** 제공되지 않은 항목(정보 부족 설명용). */
+  /** 제공되지 않은 항목(판단 불가 설명용). */
   unavailable: string[];
-  /** 지도 위 위험 반경 표기. 예시 값이다. */
+  /** 지도 위 위험 반경 표기. */
   zoneLabel?: string;
+  /** 결과 화면 하단의 추가 안내(과태료 단서 등). */
+  notes?: string[];
   isExampleData: boolean;
+}
+
+/** 기록의 위치. 서버 목록에서만 받은 기록은 좌표가 없을 수 있다. */
+export interface RecordPlace {
+  id: string;
+  name: string;
+  address: string;
+  coordinate: Coordinate | null;
+  isSupportedRegion: boolean;
+}
+
+/** 앱이 직접 띄우는 위험 알림 내용. 문구는 앱이 정한다. */
+export interface ParkingAlert {
+  recordId: string;
+  level: 1 | 2;
+  title: string;
+  body: string;
+  /** 이 시각이 지나면 표시하지 않는다. */
+  expiresAt: string;
 }
 
 export interface ParkingRecord {
   id: string;
   parkedAt: string;
-  place: SelectedPlace;
-  crosswalkAnswer: CrosswalkAnswer;
+  place: RecordPlace;
+  /** 앱에서만 받은 횡단보도 응답. 다른 기기에서 만든 기록은 null이다. */
+  crosswalkAnswer: CrosswalkAnswer | null;
   status: AnalysisStatus;
   report: AnalysisReport;
   updatedAt: string;
+  /** 같은 주차를 다시 판정할 때 그대로 보내는 원래 제출값. */
+  submission?: ParkingSubmission;
+  /** 다시 분석할 수 있는지. 없으면 상태로 판단한다(데모 기록). */
+  retryable?: boolean;
+  /** 서버 상세(GET /parking-events/{id})로 리포트를 채웠는지. */
+  detailed?: boolean;
+  /** 주차 당시 차량 이름. */
+  vehicleName?: string | null;
+}
+
+/** 홈의 최근 주차 요약. */
+export interface LatestParking {
+  record: ParkingRecord | null;
+  coordinate: Coordinate | null;
+  dataPeriod: DataPeriod | null;
 }
 
 /** 기존 호출부 호환용 요약 자료형. */
@@ -70,7 +134,11 @@ export type ParkingRecordSummary = Pick<
 export const analysisStatusLabel: Record<AnalysisStatus, string> = {
   'level-1': '1단계',
   'level-2': '2단계',
-  'no-risk-found': '확인된 위험 없음',
-  'insufficient-data': '정보 부족',
+  'no-risk-found': '알림 대상 아님',
+  'insufficient-data': '판단 불가',
   failed: '분석 실패',
 };
+
+export function toRecordPlace(place: SelectedPlace): RecordPlace {
+  return { ...place };
+}

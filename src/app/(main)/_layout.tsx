@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 
-import { ParkingTouchGuard } from '@/features/parking';
+import { AlertHost, ParkingTouchGuard } from '@/features/parking';
 import { SurveyHost } from '@/features/survey';
 import { colors } from '@/shared/theme/tokens';
 
@@ -10,6 +10,8 @@ export default function MainLayout() {
       <MainStack />
       {/* 재탑승 사후 설문은 화면과 무관하게 한 곳에서만 띄운다. */}
       <SurveyHost />
+      {/* 위험 알림(서버 결정 SEND)도 화면과 무관하게 한 곳에서 띄우고 표시 결과를 보고한다. */}
+      <AlertHost />
     </ParkingTouchGuard>
   );
 }

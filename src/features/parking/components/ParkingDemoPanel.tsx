@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { useSession } from '@/features/auth';
-import { demoControl, type DemoScenario } from '@/services';
+import { demoControl, isApiMode, type DemoScenario } from '@/services';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
 import { Card } from '@/shared/components/Surface';
@@ -119,12 +119,21 @@ export function ParkingDemoPanel() {
       </Section>
 
       <Section title="다음 응답">
+        {isApiMode ? (
+          <AppText variant="caption" tone="secondary">
+            서버 연결 중이에요. 분석 결과·로그인·차량 등록·주변 주차장은 서버 응답을 따르고,
+            GPS·기기 목록·장소 검색·재연결 이벤트만 여기서 바뀌어요. 판정 결과는 확정한 위치에 따라
+            달라져요.
+          </AppText>
+        ) : null}
         <Segmented
           title="GPS 위치"
           value={scenario.locate}
           onChange={(locate) => set({ locate })}
           options={[
             { value: 'yongin', label: '용인시 내' },
+            { value: 'yongin-weak', label: '정확도 32m' },
+            { value: 'yongin-poor', label: '정확도 80m' },
             { value: 'outside', label: '용인시 밖' },
             { value: 'unavailable', label: '조회 실패' },
           ]}

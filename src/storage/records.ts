@@ -65,6 +65,17 @@ export function upsertRecord(
   }, shouldWrite);
 }
 
+/**
+ * 저장된 기록 전체를 바꾼다. 변경 함수는 쓰기 직전의 최신 기록을 받으므로
+ * 서버 목록 병합 중에 새로 저장된 기록이 사라지지 않는다.
+ */
+export function replaceRecords(
+  change: (current: ParkingRecord[]) => ParkingRecord[],
+  shouldWrite?: () => boolean,
+): Promise<ParkingRecord[] | null> {
+  return update(change, shouldWrite);
+}
+
 export function removeRecord(id: string): Promise<ParkingRecord[] | null> {
   return update((current) => current.filter((item) => item.id !== id));
 }
