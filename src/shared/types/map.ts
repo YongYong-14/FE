@@ -23,6 +23,7 @@ export interface RiskArea {
 }
 
 export type ParkingLotType = 'public' | 'street-paid' | 'private';
+export type ParkingFeeType = 'FREE' | 'PAID' | 'MIXED';
 
 export interface ParkingLot {
   id: string;
@@ -31,6 +32,8 @@ export interface ParkingLot {
   address: string;
   distanceMeters: number;
   walkMinutes: number;
+  /** 요금 구분. 정보가 없으면 null이며 무료로 간주하지 않는다. */
+  feeType: ParkingFeeType | null;
   /** 예: "30분 1,000원" — 예시 요금 */
   fee: string;
   isOpen: boolean;

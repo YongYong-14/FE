@@ -204,6 +204,7 @@ export function MyPageScreen() {
         </View>
         <Button
           label="탈퇴하기"
+          style={styles.withdrawButton}
           loading={withdrawing}
           onPress={() => {
             setWithdrawing(true);
@@ -263,4 +264,5 @@ const styles = StyleSheet.create({
   rowTexts: { flex: 1, gap: 2 },
   trailing: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   modalTexts: { gap: spacing.sm },
+  withdrawButton: { backgroundColor: colors.danger },
 });

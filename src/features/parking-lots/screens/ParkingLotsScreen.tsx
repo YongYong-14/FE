@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ParkingLotSortDropdown } from '../components/ParkingLotSortDropdown';
+import { sortParkingLots, type ParkingLotSort } from '../utils/sortParkingLots';
 import { useParking } from '@/features/parking';
 import { parkingLotService } from '@/services';
 import { AppModal } from '@/shared/components/AppModal';
@@ -58,11 +60,13 @@ function Chip({
  * 공유·길안내·외부 지도는 앱 내부 미리보기만 보여준다.
  */
 export function ParkingLotsScreen() {
+  const list = useRef<ComponentRef<typeof ScrollView>>(null);
   const { records } = useParking();
   const latest = records[0];
   const [radius, setRadius] = useState<Radius>(500);
   const [openOnly, setOpenOnly] = useState(true);
   const [types, setTypes] = useState<ParkingLotType[]>([]);
+  const [sort, setSort] = useState<ParkingLotSort>('distance');
   const [lots, setLots] = useState<ParkingLot[]>([]);
   const [loadedRadius, setLoadedRadius] = useState<Radius | null>(null);
   const [error, setError] = useState(false);
@@ -93,10 +97,13 @@ export function ParkingLotsScreen() {
   const loading = loadedRadius !== radius;
   const visible = useMemo(
     () =>
-      lots.filter(
-        (lot) => (!openOnly || lot.isOpen) && (types.length === 0 || types.includes(lot.type)),
+      sortParkingLots(
+        lots.filter(
+          (lot) => (!openOnly || lot.isOpen) && (types.length === 0 || types.includes(lot.type)),
+        ),
+        sort,
       ),
-    [lots, openOnly, types],
+    [lots, openOnly, types, sort],
   );
   const selected = visible.find((lot) => lot.id === selectedId) ?? visible[0];
   const filtered = openOnly || types.length > 0;
@@ -150,9 +157,15 @@ export function ParkingLotsScreen() {
                 ? `근처 주차장 ${visible.length}곳`
                 : '근처에 주차장이 없어요'}
           </AppText>
-          <AppText variant="caption" tone="secondary">
-            걸어서 가까운 순
-          </AppText>
+          <ParkingLotSortDropdown
+            value={sort}
+            onChange={(next) => {
+              if (next === sort) return;
+              setSort(next);
+              setSelectedId(null);
+              list.current?.scrollTo({ y: 0, animated: false });
+            }}
+          />
         </View>
 
         <ScrollView
@@ -197,7 +210,7 @@ export function ParkingLotsScreen() {
           />
         </ScrollView>
 
-        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+        <ScrollView ref={list} style={styles.list} contentContainerStyle={styles.listContent}>
           {loading ? (
             <View style={styles.loading}>
               <ActivityIndicator color={colors.primary} />
@@ -414,7 +427,7 @@ const styles = StyleSheet.create({
   sheet: { flex: 1, marginTop: -40, paddingHorizontal: 0, paddingBottom: 0, gap: spacing.md + 2 },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.xl,
   },
