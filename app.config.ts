@@ -5,7 +5,7 @@ const config: ExpoConfig = {
   slug: 'seulkkamalkka',
   version: '0.1.0',
   scheme: 'seulkkamalkka',
-  platforms: ['android'],
+  platforms: ['android', 'web'],
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   android: {
