@@ -30,8 +30,8 @@ export interface ParkingLot {
   name: string;
   type: ParkingLotType;
   address: string;
+  /** 기준 위치에서 주차장까지의 직선 거리(m). */
   distanceMeters: number;
-  walkMinutes: number;
   /** 요금 구분. 정보가 없으면 null이며 무료로 간주하지 않는다. */
   feeType: ParkingFeeType | null;
   /** 예: "30분 1,000원" — 예시 요금 */

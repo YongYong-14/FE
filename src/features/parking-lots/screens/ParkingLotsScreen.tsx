@@ -129,8 +129,8 @@ export function ParkingLotsScreen() {
             key={lot.id}
             point={lot.position}
             selected={lot.id === selected?.id}
-            caption={`도보 ${lot.walkMinutes}분`}
-            label={`${lot.name}, 도보 ${lot.walkMinutes}분`}
+            caption={`${lot.distanceMeters}m`}
+            label={`${lot.name}, 직선 거리 ${lot.distanceMeters}m`}
             onPress={() => setSelectedId(lot.id)}
           />
         ))}
@@ -319,7 +319,7 @@ function LotRow({
       onPress={onSelect}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityLabel={`${lot.name}, ${typeLabel[lot.type]}, 도보 ${lot.walkMinutes}분, ${lot.fee}${lot.isOpen ? '' : ', 운영 종료'}`}
+      accessibilityLabel={`${lot.name}, ${typeLabel[lot.type]}, 직선 거리 ${lot.distanceMeters}m, ${lot.fee}${lot.isOpen ? '' : ', 운영 종료'}`}
       android_ripple={{ color: 'rgba(0,0,0,0.04)' }}
       style={[styles.row, !last && styles.rowDivider]}
     >
@@ -333,7 +333,7 @@ function LotRow({
           {lot.name}
         </AppText>
         <AppText variant="caption" tone="body">
-          {typeLabel[lot.type]} · 도보 {lot.walkMinutes}분 ({lot.distanceMeters}m) · {lot.fee}
+          {typeLabel[lot.type]} · {lot.distanceMeters}m · {lot.fee}
         </AppText>
         {!lot.isOpen ? (
           <AppText variant="micro" tone="danger">
@@ -374,11 +374,7 @@ function PreviewModal({ preview, onClose }: { preview: Preview; onClose: () => v
     preview?.kind === 'share' && lot
       ? [`장소: ${lot.name}`, `주소: ${lot.address}`, `운영: ${lot.hours}`]
       : preview?.kind === 'route' && lot
-        ? [
-            '출발: 내 차 주차 위치',
-            `도착: ${lot.name}`,
-            `도보 ${lot.walkMinutes}분 · ${lot.distanceMeters}m (예시)`,
-          ]
+        ? ['출발: 내 차 주차 위치', `도착: ${lot.name}`, `직선 거리 ${lot.distanceMeters}m (예시)`]
         : ['검색어: 주차장', '기준: 내 차 주차 위치 주변'];
   return (
     <AppModal visible={Boolean(preview)} onDismiss={onClose}>

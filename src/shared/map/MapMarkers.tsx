@@ -81,7 +81,7 @@ export function PlacePin({ point, label }: { point: MapPoint; label: string }) {
   );
 }
 
-/** 주차장 핀. 선택된 핀은 크게 표시하고 도보 시간을 붙인다. */
+/** 주차장 핀. 선택된 핀은 크게 표시하고 전달받은 거리 문구를 붙인다. */
 export function LotPin({
   point,
   selected,
