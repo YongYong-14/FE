@@ -11,6 +11,10 @@
   "scripts": {
     "start": "expo start --dev-client",
     "start:clear": "expo start --dev-client --clear",
+    "web": "expo start --web",
+    "web:mock": "node scripts/web-with-mock.mjs",
+    "mock:api": "node scripts/mock-api/server.mjs",
+    "test:api": "node scripts/mock-api/contract-check.mjs --spawn",
     "android": "expo run:android",
     "android:device": "expo run:android --device",
     "prebuild:android": "expo prebuild --platform android",
