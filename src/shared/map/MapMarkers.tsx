@@ -42,16 +42,34 @@ export function RiskAreaShape({ area }: { area: RiskArea }) {
 }
 
 /** 신고 건수 말풍선. 예시 수치다. */
-export function CountBubble({ point, count }: { point: MapPoint; count: number }) {
+export function CountBubble({
+  point,
+  count,
+  placement = 'above',
+}: {
+  point: MapPoint;
+  count: number;
+  /** above: 기준점 위에 말풍선 아래 끝을 맞춘다. below: 기준점 아래에 위 끝을 맞춘다. */
+  placement?: 'above' | 'below';
+}) {
   return (
     <View pointerEvents="none" style={[styles.abs, styles.bubbleAnchor, point]}>
-      <View style={styles.bubble}>
-        <AppText variant="micro" weight="bold">
-          {count}건
+      <View
+        style={[styles.bubble, placement === 'below' ? styles.bubbleBelow : styles.bubbleAbove]}
+      >
+        {/* 기준점 폭이 0이라 웹에서 숫자와 "건" 사이가 줄바꿈되지 않게 한 줄로 고정한다. */}
+        <AppText variant="micro" weight="bold" numberOfLines={1} style={styles.bubbleText}>
+          {count.toLocaleString('ko-KR')}건
         </AppText>
       </View>
     </View>
   );
+}
+
+/** 말풍선 예상 크기(px). 겹치는 말풍선을 거를 때 쓴다. */
+export function countBubbleSize(count: number): { width: number; height: number } {
+  const label = `${count.toLocaleString('ko-KR')}건`;
+  return { width: Math.max(40, 18 + label.length * 8), height: 22 };
 }
 
 /** 현재 위치 파란 점. */
@@ -125,7 +143,6 @@ const styles = StyleSheet.create({
   bubbleAnchor: { width: 0, height: 0, alignItems: 'center', overflow: 'visible' },
   bubble: {
     position: 'absolute',
-    bottom: 0,
     minWidth: 40,
     alignItems: 'center',
     paddingHorizontal: 9,
@@ -134,6 +151,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     boxShadow: '0px 2px 8px rgba(0,0,0,0.14)',
   },
+  bubbleAbove: { bottom: 0 },
+  bubbleBelow: { top: 0 },
+  bubbleText: { flexShrink: 0 },
   dot: {
     width: 18,
     height: 18,

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,67 +16,169 @@ import { mapService, placeService } from '@/services';
 import { AppText } from '@/shared/components/AppText';
 import { Icon } from '@/shared/components/Icon';
 import { IconButton } from '@/shared/components/IconButton';
-import { MapIllustration } from '@/shared/map/MapIllustration';
-import { CountBubble, LocationDot, PlacePin, RiskAreaShape } from '@/shared/map/MapMarkers';
+import { GeoMap, TILE_ATTRIBUTION, TILE_ATTRIBUTION_URL } from '@/shared/map/GeoMap';
+import {
+  CountBubble,
+  countBubbleSize,
+  LocationDot,
+  PlacePin,
+  RiskAreaShape,
+} from '@/shared/map/MapMarkers';
 import { colors, fonts, radii, shadows, spacing, touchTarget } from '@/shared/theme/tokens';
 import type { Coordinate, SelectedPlace } from '@/shared/types/location';
-import type { GeoBounds, RiskArea, RiskZoneData } from '@/shared/types/map';
+import type { MapPoint, RiskArea, RiskZoneData } from '@/shared/types/map';
 import { dataPeriodLabel, timeSlotLabel, weekdayLabel } from '@/shared/utils/format';
 import {
-  boundsAround,
-  isInside,
-  metersToHeightPercent,
-  metersToWidthPercent,
-  project,
-  projectRatio,
-} from '@/shared/utils/geo';
+  createProjector,
+  queryBoxes,
+  type MapView,
+  type Projector,
+  type ViewSize,
+} from '@/shared/utils/mercator';
 
-/** 지도 한 변의 절반(m). 서버는 한 변 2km까지 받는다. */
-const HALF_SPAN_M = 500;
-/** 법정 거리(5·10m)는 이 축척에서 점보다 작아 최소 크기로 그린다. */
-const MIN_ZONE_PX = 26;
+/** 처음 보여줄 확대 단계(휴대폰 가로 약 750m). */
+const DEFAULT_ZOOM = 16;
+const MIN_ZOOM = 14;
+const MAX_ZOOM = 18;
+/** 이보다 축소하면 칸이 작아 신고 건수 말풍선을 숨긴다. */
+const COUNT_MIN_ZOOM = 15.5;
+/** 법정 거리(5·10m)는 축소하면 점보다 작아 최소 크기로 그린다. */
+const MIN_ZONE_PX = 18;
+/** 한 화면에서 동시에 조회하는 칸 수(칸 하나는 약 1.8km). */
+const MAX_BOXES = 12;
+/** 이동·확대를 멈춘 뒤 조회를 시작하기까지 기다리는 시간. */
+const FETCH_DELAY_MS = 250;
+/** 같은 칸을 다시 조회하기 전까지 쓰는 시간(요일·시간대가 바뀔 수 있음). */
+const BOX_TTL_MS = 10 * 60 * 1000;
 
-type ZoneState =
-  { key: string; status: 'done'; data: RiskZoneData } | { key: string; status: 'error' };
+type BoxEntry = { status: 'done'; data: RiskZoneData } | { status: 'error' };
 
-/** 서버 좌표 구역 → 일러스트 비율 좌표. */
-function toRiskAreas(data: RiskZoneData, bounds: GeoBounds, widthPx: number): RiskArea[] {
-  const pxPerMeter = widthPx > 0 ? widthPx / (HALF_SPAN_M * 2) : 0;
-  const facilities: RiskArea[] = data.facilityZones.map((zone, index) => {
-    const center = project(zone.coordinate, bounds);
-    return {
+const coordinateKey = (coordinate: Coordinate) =>
+  `${coordinate.latitude.toFixed(6)}:${coordinate.longitude.toFixed(6)}`;
+
+/** 여러 칸의 조회 결과를 합친다. 칸 경계의 같은 구역은 한 번만 그린다. */
+function mergeZones(entries: (BoxEntry | undefined)[]): RiskZoneData | null {
+  const done = entries.flatMap((entry) => (entry?.status === 'done' ? [entry.data] : []));
+  const first = done[0];
+  if (!first) return null;
+  const facilities = new Map<string, RiskZoneData['facilityZones'][number]>();
+  const cells = new Map<string, RiskZoneData['cells'][number]>();
+  for (const data of done) {
+    for (const zone of data.facilityZones) {
+      facilities.set(`${zone.zoneType}:${coordinateKey(zone.coordinate)}`, zone);
+    }
+    for (const cell of data.cells) cells.set(coordinateKey(cell.coordinate), cell);
+  }
+  return {
+    facilityZones: [...facilities.values()],
+    cells: [...cells.values()],
+    dataPeriod: done.find((data) => data.dataPeriod)?.dataPeriod ?? null,
+    slot: first.slot,
+    isExampleData: done.some((data) => data.isExampleData),
+  };
+}
+
+interface Overlays {
+  areas: RiskArea[];
+  bubbles: { id: string; point: MapPoint; count: number; placement: 'above' | 'below' }[];
+}
+
+interface Box {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+const intersects = (a: Box, b: Box) =>
+  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+/** 좌표 구역 → 화면 px 표시 요소. 화면 밖은 그리지 않고, 겹치는 말풍선은 건수가 많은 것만 남긴다. */
+function toOverlays(data: RiskZoneData, projector: Projector, withBubbles: boolean): Overlays {
+  const { width, height } = projector.size;
+  const margin = 80;
+  const visible = (x: number, y: number) =>
+    x > -margin && y > -margin && x < width + margin && y < height + margin;
+
+  const areas: RiskArea[] = [];
+  const candidates: { id: string; x: number; top: number; bottom: number; count: number }[] = [];
+  data.cells.forEach((cell, index) => {
+    const { x, y } = projector.toScreen(cell.coordinate);
+    if (!visible(x, y)) return;
+    const side = Math.max(6, projector.metersToPixels(cell.sizeMeters));
+    const id = `cell-${index}`;
+    areas.push({
+      id,
+      level: 2,
+      shape: {
+        kind: 'rect',
+        rect: { left: x - side / 2, top: y - side / 2, width: side, height: side },
+      },
+      badge: { left: x, top: y - side / 2 },
+      reportCount: cell.reportCount,
+    });
+    // 신고 건수 0은 문구를 숨긴다(명세 5절).
+    if (cell.reportCount > 0) {
+      candidates.push({ id, x, top: y - side / 2, bottom: y + side / 2, count: cell.reportCount });
+    }
+  });
+  data.facilityZones.forEach((zone, index) => {
+    const { x, y } = projector.toScreen(zone.coordinate);
+    if (!visible(x, y)) return;
+    const center = { left: x, top: y };
+    areas.push({
       id: `facility-${index}`,
       level: 1,
       shape: {
         kind: 'circle',
         center,
-        size: Math.max(MIN_ZONE_PX, zone.radiusMeters * 2 * pxPerMeter),
+        size: Math.max(MIN_ZONE_PX, projector.metersToPixels(zone.radiusMeters * 2)),
       },
       badge: center,
       reportCount: 0,
-    };
+    });
   });
-  const cells: RiskArea[] = data.cells.map((cell, index) => {
-    const { x, y } = projectRatio(cell.coordinate, bounds);
-    const width = metersToWidthPercent(cell.sizeMeters, bounds);
-    const height = metersToHeightPercent(cell.sizeMeters, bounds);
-    return {
-      id: `cell-${index}`,
-      level: 2,
-      shape: {
-        kind: 'rect',
-        rect: {
-          left: `${(x - width / 2).toFixed(2)}%`,
-          top: `${(y - height / 2).toFixed(2)}%`,
-          width: `${width.toFixed(2)}%`,
-          height: `${height.toFixed(2)}%`,
+
+  const bubbles: Overlays['bubbles'] = [];
+  if (withBubbles) {
+    // 건수가 많은 칸부터 칸 위에, 자리가 없으면 칸 아래에 놓고 그래도 겹치면 생략한다.
+    const placed: Box[] = [];
+    for (const candidate of [...candidates].sort((a, b) => b.count - a.count)) {
+      const size = countBubbleSize(candidate.count);
+      const horizontal = {
+        left: candidate.x - size.width / 2 - 1,
+        right: candidate.x + size.width / 2 + 1,
+      };
+      const options = [
+        {
+          placement: 'above' as const,
+          anchor: candidate.top,
+          box: { ...horizontal, top: candidate.top - size.height - 1, bottom: candidate.top + 1 },
         },
-      },
-      badge: { left: `${x.toFixed(2)}%`, top: `${(y - height / 2).toFixed(2)}%` },
-      reportCount: cell.reportCount,
-    };
-  });
-  return [...cells, ...facilities];
+        {
+          placement: 'below' as const,
+          anchor: candidate.bottom,
+          box: {
+            ...horizontal,
+            top: candidate.bottom - 1,
+            bottom: candidate.bottom + size.height + 1,
+          },
+        },
+      ];
+      const choice = options.find(
+        (option) => !placed.some((other) => intersects(option.box, other)),
+      );
+      if (!choice) continue;
+      placed.push(choice.box);
+      bubbles.push({
+        id: candidate.id,
+        point: { left: candidate.x, top: choice.anchor },
+        count: candidate.count,
+        placement: choice.placement,
+      });
+    }
+  }
+  return { areas, bubbles };
 }
 
 type SearchState =
@@ -84,14 +187,20 @@ type SearchState =
   | { status: 'done'; results: SelectedPlace[] }
   | { status: 'error' };
 
+const clampZoom = (zoom: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+
 /**
- * 지도 탭. 화면 범위의 1단계 구역·2단계 집중 칸(GET /map/risk-zones)과 장소 검색을 보여준다.
- * 검색으로 고른 장소로 지도 범위를 옮기며, 검색과 선택만으로 주차 분석을 시작하지 않는다.
+ * 지도 탭. 끌어서 이동하고 확대·축소하며 화면 범위의 1단계 구역·2단계 집중 칸
+ * (GET /map/risk-zones)을 본다. 검색으로 고른 장소로 이동할 수 있고,
+ * 검색과 선택만으로 주차 분석을 시작하지 않는다.
  */
 export function MapScreen() {
-  const [zones, setZones] = useState<ZoneState | null>(null);
-  const [widthPx, setWidthPx] = useState(0);
-  const [zoneRetryKey, setZoneRetryKey] = useState(0);
+  const current: Coordinate = mapService.currentLocation();
+  const [view, setView] = useState<MapView>({ center: current, zoom: DEFAULT_ZOOM });
+  const [size, setSize] = useState<ViewSize>({ width: 0, height: 0 });
+  const [boxCache, setBoxCache] = useState<Record<string, BoxEntry>>({});
+  const inFlight = useRef(new Set<string>());
+  const mounted = useRef(true);
   const [showCounts, setShowCounts] = useState(true);
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
@@ -99,33 +208,71 @@ export function MapScreen() {
   const [selected, setSelected] = useState<SelectedPlace | null>(null);
   const [retryKey, setRetryKey] = useState(0);
 
-  const current: Coordinate = mapService.currentLocation();
-  const center = selected?.isSupportedRegion ? selected.coordinate : current;
-  // 좌표 값이 같으면 같은 범위로 본다(다시 조회하지 않음).
-  const { latitude, longitude } = center;
-  const bounds = boundsAround({ latitude, longitude }, HALF_SPAN_M);
-  const requestKey = `${latitude},${longitude},${zoneRetryKey}`;
-
   useEffect(() => {
-    let active = true;
-    mapService
-      .riskZones(boundsAround({ latitude, longitude }, HALF_SPAN_M))
-      .then((data) => {
-        if (active) setZones({ key: requestKey, status: 'done', data });
-      })
-      .catch(() => {
-        // 조회 실패를 0건으로 보여주지 않는다(명세 5절).
-        if (active) setZones({ key: requestKey, status: 'error' });
-      });
+    mounted.current = true;
     return () => {
-      active = false;
+      mounted.current = false;
     };
-  }, [latitude, longitude, requestKey]);
+  }, []);
 
-  const loaded = zones?.key === requestKey ? zones : null;
-  const zoneStatus = loaded?.status ?? 'loading';
-  const zoneData = loaded?.status === 'done' ? loaded.data : null;
-  const areas = zoneData ? toRiskAreas(zoneData, bounds, widthPx) : [];
+  const ready = size.width > 0 && size.height > 0;
+  const projector = createProjector(view, size);
+  const { boxes, truncated } = ready
+    ? queryBoxes(projector.bounds, MAX_BOXES)
+    : { boxes: [], truncated: false };
+  const { minLat, maxLat, minLng, maxLng } = projector.bounds;
+
+  // 이동·확대를 멈추면 화면 범위의 칸 중 아직 받지 않은 칸만 조회한다.
+  useEffect(() => {
+    if (!ready) return;
+    const missing = queryBoxes({ minLat, maxLat, minLng, maxLng }, MAX_BOXES).boxes.filter(
+      (box) => !boxCache[box.key] && !inFlight.current.has(box.key),
+    );
+    if (missing.length === 0) return;
+    const timer = setTimeout(() => {
+      for (const box of missing) {
+        inFlight.current.add(box.key);
+        mapService
+          .riskZones(box.bounds)
+          .then(
+            (data): BoxEntry => ({ status: 'done', data }),
+            // 조회 실패를 0건으로 보여주지 않는다(명세 5절).
+            (): BoxEntry => ({ status: 'error' }),
+          )
+          .then((entry) => {
+            inFlight.current.delete(box.key);
+            if (!mounted.current) return;
+            setBoxCache((previous) => ({ ...previous, [box.key]: entry }));
+            // 요일·시간대 기준이 바뀔 수 있어 받은 칸은 일정 시간 뒤 버리고 다시 조회한다.
+            if (entry.status === 'done') {
+              setTimeout(() => {
+                if (!mounted.current) return;
+                setBoxCache((previous) => {
+                  const { [box.key]: expired, ...rest } = previous;
+                  return expired ? rest : previous;
+                });
+              }, BOX_TTL_MS);
+            }
+          });
+      }
+    }, FETCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [ready, minLat, maxLat, minLng, maxLng, boxCache]);
+
+  const entries = boxes.map((box) => boxCache[box.key]);
+  const zoneStatus: 'loading' | 'error' | 'done' = entries.some(
+    (entry) => entry?.status === 'error',
+  )
+    ? 'error'
+    : entries.some((entry) => !entry) || !ready
+      ? 'loading'
+      : 'done';
+  const zoneData = mergeZones(entries);
+  const countsVisible = showCounts && view.zoom >= COUNT_MIN_ZOOM;
+  const overlays = zoneData
+    ? toOverlays(zoneData, projector, countsVisible)
+    : { areas: [], bubbles: [] };
+
   const basis = zoneData
     ? zoneData.isExampleData
       ? '구역·건수는 시연용 예시 데이터예요'
@@ -138,6 +285,12 @@ export function MapScreen() {
           .filter(Boolean)
           .join(' · ')
     : null;
+  const hint =
+    showCounts && view.zoom < COUNT_MIN_ZOOM
+      ? '확대하면 신고 건수가 보여요'
+      : truncated
+        ? '확대하면 가장자리 구역도 보여요'
+        : null;
 
   useEffect(() => {
     const keyword = query.trim();
@@ -159,6 +312,23 @@ export function MapScreen() {
     };
   }, [query, retryKey]);
 
+  const changeView = useCallback((next: MapView) => {
+    setView({ center: next.center, zoom: clampZoom(next.zoom) });
+  }, []);
+
+  function zoomBy(step: number) {
+    setView((previous) => ({
+      center: previous.center,
+      zoom: clampZoom(Math.round(previous.zoom) + step),
+    }));
+  }
+
+  function retryZones() {
+    setBoxCache((previous) =>
+      Object.fromEntries(Object.entries(previous).filter(([, entry]) => entry.status === 'done')),
+    );
+  }
+
   function changeQuery(text: string) {
     setQuery(text);
     setSearch(text.trim() ? { status: 'loading' } : { status: 'idle' });
@@ -169,6 +339,11 @@ export function MapScreen() {
     setQuery(place.name);
     setFocused(false);
     Keyboard.dismiss();
+    // 고른 장소로 지도를 옮긴다(멀리 축소해 있었다면 기본 확대 단계로).
+    setView((previous) => ({
+      center: place.coordinate,
+      zoom: Math.max(previous.zoom, DEFAULT_ZOOM),
+    }));
   }
 
   function clear() {
@@ -177,31 +352,42 @@ export function MapScreen() {
     setSelected(null);
   }
 
+  function moveToCurrent() {
+    clear();
+    setView({ center: current, zoom: DEFAULT_ZOOM });
+  }
+
   const showResults = focused && query.trim().length > 0 && !selected;
+  const currentPoint = projector.toScreen(current);
+  const selectedPoint = selected ? projector.toScreen(selected.coordinate) : null;
 
   return (
     <View style={styles.root}>
-      <View
+      <GeoMap
+        view={view}
+        size={size}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
+        onViewChange={changeView}
+        onSizeChange={setSize}
         style={StyleSheet.absoluteFill}
-        onLayout={(event) => setWidthPx(event.nativeEvent.layout.width)}
       >
-        <MapIllustration style={StyleSheet.absoluteFill}>
-          {areas.map((area) => (
-            <RiskAreaShape key={area.id} area={area} />
-          ))}
-          {showCounts
-            ? areas
-                .filter((area) => area.level === 2 && area.reportCount > 0)
-                .map((area) => (
-                  <CountBubble key={`c-${area.id}`} point={area.badge} count={area.reportCount} />
-                ))
-            : null}
-          {isInside(current, bounds) ? <LocationDot point={project(current, bounds)} /> : null}
-          {selected && isInside(selected.coordinate, bounds) ? (
-            <PlacePin point={project(selected.coordinate, bounds)} label={selected.name} />
-          ) : null}
-        </MapIllustration>
-      </View>
+        {ready ? overlays.areas.map((area) => <RiskAreaShape key={area.id} area={area} />) : null}
+        {ready
+          ? overlays.bubbles.map((bubble) => (
+              <CountBubble
+                key={`c-${bubble.id}`}
+                point={bubble.point}
+                count={bubble.count}
+                placement={bubble.placement}
+              />
+            ))
+          : null}
+        {ready ? <LocationDot point={{ left: currentPoint.x, top: currentPoint.y }} /> : null}
+        {ready && selected && selectedPoint ? (
+          <PlacePin point={{ left: selectedPoint.x, top: selectedPoint.y }} label={selected.name} />
+        ) : null}
+      </GeoMap>
 
       <SafeAreaView edges={['top']} style={styles.top} pointerEvents="box-none">
         <View style={styles.searchBar}>
@@ -308,6 +494,10 @@ export function MapScreen() {
       </SafeAreaView>
 
       <View style={styles.bottom} pointerEvents="box-none">
+        <View style={styles.zoomColumn} pointerEvents="box-none">
+          <IconButton name="add" label="지도 확대" onPress={() => zoomBy(1)} floating />
+          <IconButton name="remove" label="지도 축소" onPress={() => zoomBy(-1)} floating />
+        </View>
         <View style={styles.bottomRow} pointerEvents="box-none">
           <View
             style={styles.legend}
@@ -317,7 +507,7 @@ export function MapScreen() {
             <LegendItem color={colors.danger} label="1단계 구역" />
             <LegendItem color={colors.warning} label="2단계 신고 집중" />
           </View>
-          <IconButton name="locate" label="현재 위치로 이동" onPress={clear} floating />
+          <IconButton name="locate" label="현재 위치로 이동" onPress={moveToCurrent} floating />
         </View>
         {selected ? (
           <View style={styles.placeCard} accessibilityLiveRegion="polite">
@@ -337,26 +527,33 @@ export function MapScreen() {
         {zoneStatus === 'error' ? (
           <View style={styles.zoneError} accessibilityRole="alert">
             <AppText variant="caption" weight="bold" style={styles.flex}>
-              위험 구역을 불러오지 못했어요
+              일부 위험 구역을 불러오지 못했어요
             </AppText>
-            <Pressable
-              onPress={() => setZoneRetryKey((key) => key + 1)}
-              hitSlop={8}
-              accessibilityRole="button"
-            >
+            <Pressable onPress={retryZones} hitSlop={8} accessibilityRole="button">
               <AppText variant="caption" weight="bold" tone="primary">
                 다시 시도
               </AppText>
             </Pressable>
           </View>
         ) : null}
-        <AppText variant="micro" tone="secondary" style={styles.note}>
-          {zoneStatus === 'loading'
-            ? '위험 구역을 불러오고 있어요'
-            : basis
-              ? `${basis} · 칸이 없다고 안전하다는 뜻은 아니에요`
-              : ' '}
-        </AppText>
+        <View style={styles.noteBox}>
+          <AppText variant="micro" tone="secondary" style={styles.note}>
+            {zoneStatus === 'loading'
+              ? '위험 구역을 불러오고 있어요'
+              : [basis, hint ?? '칸이 없다고 안전하다는 뜻은 아니에요'].filter(Boolean).join(' · ')}
+          </AppText>
+          <Pressable
+            onPress={() => void Linking.openURL(TILE_ATTRIBUTION_URL)}
+            accessibilityRole="link"
+            accessibilityLabel="지도 데이터 출처 OpenStreetMap"
+            hitSlop={6}
+            style={styles.attributionLink}
+          >
+            <AppText variant="micro" tone="secondary" style={styles.attribution}>
+              {TILE_ATTRIBUTION}
+            </AppText>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -442,6 +639,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
+  zoomColumn: { alignSelf: 'flex-end', gap: spacing.sm },
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -470,7 +668,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     boxShadow: shadows.floating,
   },
-  note: { alignSelf: 'center', minHeight: touchTarget / 3, textAlign: 'center' },
+  noteBox: {
+    gap: 2,
+    minHeight: touchTarget / 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.xs,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+  },
+  note: { textAlign: 'center' },
+  attributionLink: { alignSelf: 'flex-end' },
+  attribution: { textDecorationLine: 'underline' },
   zoneError: {
     flexDirection: 'row',
     alignItems: 'center',
