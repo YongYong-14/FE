@@ -17,7 +17,7 @@ import { AppText } from '@/shared/components/AppText';
 import { Icon } from '@/shared/components/Icon';
 import { IconButton } from '@/shared/components/IconButton';
 import { useDeviceLocation } from '@/shared/hooks/useDeviceLocation';
-import { GeoMap, TILE_ATTRIBUTION, TILE_ATTRIBUTION_URL } from '@/shared/map/GeoMap';
+import { GeoMap, MAP_ATTRIBUTION } from '@/shared/map/GeoMap';
 import {
   CountBubble,
   countBubbleSize,
@@ -551,17 +551,19 @@ export function MapScreen() {
                   .filter(Boolean)
                   .join(' · ')}
           </AppText>
-          <Pressable
-            onPress={() => void Linking.openURL(TILE_ATTRIBUTION_URL)}
-            accessibilityRole="link"
-            accessibilityLabel="지도 데이터 출처 OpenStreetMap"
-            hitSlop={6}
-            style={styles.attributionLink}
-          >
-            <AppText variant="micro" tone="secondary" style={styles.attribution}>
-              {TILE_ATTRIBUTION}
-            </AppText>
-          </Pressable>
+          {MAP_ATTRIBUTION ? (
+            <Pressable
+              onPress={() => void Linking.openURL(MAP_ATTRIBUTION?.url ?? '')}
+              accessibilityRole="link"
+              accessibilityLabel={`지도 데이터 출처 ${MAP_ATTRIBUTION.label}`}
+              hitSlop={6}
+              style={styles.attributionLink}
+            >
+              <AppText variant="micro" tone="secondary" style={styles.attribution}>
+                {MAP_ATTRIBUTION.label}
+              </AppText>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </View>

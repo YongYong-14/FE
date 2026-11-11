@@ -16,6 +16,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { requireOptionalNativeModule } from 'expo';
+
 import { colors } from '@/shared/theme/tokens';
 import {
   createProjector,
@@ -25,15 +27,28 @@ import {
   type ViewSize,
 } from '@/shared/utils/mercator';
 
-// 끌어서 이동·두 손가락 확대(모바일)·휠 확대(웹)가 되는 지도. 배경은 지도 타일이고,
+// 끌어서 이동·두 손가락 확대(모바일)·휠 확대(웹)가 되는 지도.
+// Android에서 카카오 네이티브 앱 키와 지도 모듈이 있으면 카카오 지도, 그 밖(웹·키 없는 빌드)은 타일 지도를 쓴다.
 // 위에 올리는 표시 요소(children)는 같은 좌표 계산(createProjector)으로 px 위치를 정한다.
-// 지도 SDK(카카오맵 등)를 정하면 이 컴포넌트만 교체하고 좌표·표시 요소는 그대로 쓴다.
+
+const KAKAO_APP_KEY = process.env.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY?.trim() || null;
+/** 지도 모듈이 빠진 이전 개발 빌드에서는 타일 지도로 대신한다. */
+const kakaoMapAvailable =
+  Platform.OS === 'android' && !!KAKAO_APP_KEY && !!requireOptionalNativeModule('RNCKakaoMap');
+// 웹 번들과 모듈 없는 빌드에서 카카오 지도 코드를 불러오지 않도록 필요할 때만 가져온다.
+const KakaoGeoMap: typeof import('./KakaoGeoMap').KakaoGeoMap | null = kakaoMapAvailable
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('./KakaoGeoMap').KakaoGeoMap
+  : null;
+
+/** 지도 출처 표기. 카카오 지도는 지도 위에 로고를 직접 그리므로 따로 표기하지 않는다. */
+export const MAP_ATTRIBUTION: { label: string; url: string } | null = KakaoGeoMap
+  ? null
+  : { label: '© OpenStreetMap', url: 'https://www.openstreetmap.org/copyright' };
 
 /** 타일 주소. {z}/{x}/{y}를 바꿔 쓴다. 기본은 OpenStreetMap(출처 표기 필요). */
 export const TILE_URL =
   process.env.EXPO_PUBLIC_MAP_TILE_URL?.trim() || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-export const TILE_ATTRIBUTION = '© OpenStreetMap';
-export const TILE_ATTRIBUTION_URL = 'https://www.openstreetmap.org/copyright';
 /**
  * OpenStreetMap 타일 정책: 앱을 알 수 있는 User-Agent를 보낸다.
  * 웹은 브라우저 값을 쓴다(헤더를 주면 react-native-web이 fetch로 받아 CORS 사전 요청이 생긴다).
@@ -75,7 +90,15 @@ interface GeoMapProps {
   style?: ViewStyle;
 }
 
-export function GeoMap({
+export function GeoMap(props: GeoMapProps) {
+  return KakaoGeoMap && KAKAO_APP_KEY ? (
+    <KakaoGeoMap appKey={KAKAO_APP_KEY} {...props} />
+  ) : (
+    <TileGeoMap {...props} />
+  );
+}
+
+function TileGeoMap({
   view,
   size,
   minZoom,
