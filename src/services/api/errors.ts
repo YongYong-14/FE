@@ -28,7 +28,10 @@ export type ApiErrorCode =
   | 'TIMEOUT'
   | 'INVALID_RESPONSE'
   | 'NOT_SIGNED_IN'
-  | 'KAKAO_SDK_UNAVAILABLE';
+  | 'KAKAO_SDK_UNAVAILABLE'
+  | 'KAKAO_CONFIG_MISSING'
+  | 'KAKAO_LOGIN_CANCELLED'
+  | 'KAKAO_LOGIN_FAILED';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -62,7 +65,9 @@ const messages: Partial<Record<ApiErrorCode, string>> = {
   NOT_SIGNED_IN: '로그인이 필요해요. 다시 로그인해 주세요.',
   KAKAO_TOKEN_INVALID: '카카오 로그인 정보를 확인하지 못했어요. 다시 로그인해 주세요.',
   KAKAO_SDK_UNAVAILABLE:
-    '카카오 SDK가 아직 연결되지 않았어요. 개발용 카카오 토큰(EXPO_PUBLIC_KAKAO_ACCESS_TOKEN)을 설정해 주세요.',
+    '카카오 로그인은 SDK가 포함된 Android 개발 빌드에서 사용할 수 있어요. 앱을 다시 빌드해 설치해 주세요.',
+  KAKAO_CONFIG_MISSING: '카카오 네이티브 앱 키를 설정하고 앱을 다시 빌드해 주세요.',
+  KAKAO_LOGIN_FAILED: '카카오 로그인을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.',
   LOCATION_CONSENT_REQUIRED: '위치기반서비스 이용약관에 동의해야 이용할 수 있어요.',
   VEHICLE_NOT_FOUND: '등록된 차량을 찾지 못했어요. 차량을 다시 등록해 주세요.',
   PARKING_EVENT_NOT_FOUND: '주차 기록을 찾지 못했어요.',

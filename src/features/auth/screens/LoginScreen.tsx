@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
-import { describeError, isApiMode } from '@/services';
+import { describeError, isApiError, isApiMode } from '@/services';
 
 import { useSession } from '../state/SessionProvider';
 import { AppText } from '@/shared/components/AppText';
@@ -38,7 +38,13 @@ export function LoginScreen() {
             leading={error ? undefined : <Icon name="chatbubble" color={colors.ink} size={18} />}
             onPress={() => {
               clearSessionNotice();
-              void run(signIn);
+              void run(async () => {
+                try {
+                  await signIn();
+                } catch (cause) {
+                  if (!isApiError(cause, 'KAKAO_LOGIN_CANCELLED')) throw cause;
+                }
+              });
             }}
             loading={busy}
           />

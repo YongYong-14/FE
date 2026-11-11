@@ -15,6 +15,7 @@ import { authSession } from './client';
 import { apiConfig } from './config';
 import * as endpoints from './endpoints';
 import { ApiError, isAbortError, isApiError } from './errors';
+import { getKakaoLoginToken } from './kakao';
 import {
   buildAlert,
   buildReport,
@@ -48,9 +49,7 @@ function deviceInfo(): string {
 
 export const apiAccountService: AccountService = {
   async signIn() {
-    // 카카오 SDK 연결 전에는 개발용 토큰을 쓴다. SDK를 붙이면 SDK 로그인 결과의 액세스 토큰으로 바꾼다.
-    const kakaoAccessToken = apiConfig.devKakaoAccessToken;
-    if (!kakaoAccessToken) throw new ApiError(0, 'KAKAO_SDK_UNAVAILABLE');
+    const kakaoAccessToken = await getKakaoLoginToken();
     const response = await endpoints.loginWithKakao({ kakaoAccessToken, deviceInfo: deviceInfo() });
     await authSession.set(response);
     return {
