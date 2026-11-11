@@ -28,7 +28,10 @@ import { demoAnalysisService } from './demo/analysis';
 import { demoMapService, demoParkingLotService } from './demo/map';
 import { demoRecordService } from './demo/records';
 import { demoNotificationSettingsService, demoSystemService } from './demo/settings';
-import { demoVehicleService } from './demo/vehicle';
+import { demoBluetoothDeviceService, demoVehicleService } from './demo/vehicle';
+import { isNativeDeviceMode, nativeBluetoothDeviceService } from './device/bluetooth';
+import { nativeLocationService } from './device/location';
+import { demoLocationService } from './demo/location';
 
 export const isApiMode = apiConfig.enabled;
 
@@ -47,12 +50,13 @@ export const parkingLotService: ParkingLotService = isApiMode
   : demoParkingLotService;
 export const systemService: SystemService = isApiMode ? apiSystemService : demoSystemService;
 
-// 기기·외부 SDK 기능(실제 블루투스·GPS·카카오 검색 연동 전까지 데모).
-export { demoBluetoothDeviceService as bluetoothDeviceService } from './demo/vehicle';
-export {
-  demoLocationService as locationService,
-  demoPlaceService as placeService,
-} from './demo/location';
+// Android는 실제 OS 기기·GPS를 사용한다. 웹 시연에서는 기존 데모를 유지한다.
+export { isNativeDeviceMode } from './device/bluetooth';
+export const bluetoothDeviceService = isNativeDeviceMode
+  ? nativeBluetoothDeviceService
+  : demoBluetoothDeviceService;
+export const locationService = isNativeDeviceMode ? nativeLocationService : demoLocationService;
+export { demoPlaceService as placeService } from './demo/location';
 
 // 시연 제어(데모 설정 화면 전용). 실제 연동 경로에서는 제거한다.
 export { defaultScenario, demoControl, type DemoScenario } from './demo/scenario';

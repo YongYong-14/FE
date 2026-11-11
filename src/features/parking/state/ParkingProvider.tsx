@@ -18,6 +18,7 @@ import {
   isAbortError,
   isApiError,
   isApiMode,
+  isNativeDeviceMode,
   locationService,
   recordService,
 } from '@/services';
@@ -36,6 +37,8 @@ import { createUuid } from '@/shared/utils/uuid';
 import { loadShownAlerts, markAlertShown } from '@/storage/alerts';
 import { loadParkingProgressRaw, saveParkingProgressRaw } from '@/storage/parkingProgress';
 import { storageGeneration } from '@/storage/keys';
+import { useVehicleBluetooth } from '@/services/device/useVehicleBluetooth';
+import { nativeBluetooth } from '@/services/device/bluetooth';
 import { listRecords, removeRecord, replaceRecords, upsertRecord } from '@/storage/records';
 
 import {
@@ -72,6 +75,7 @@ export interface LatestInfo {
 export type RecordDetailResult = 'loaded' | 'not-found' | 'unchanged';
 
 interface ParkingContextValue {
+  deviceError: string | null;
   progress: ParkingProgress | null;
   isRestoring: boolean;
   records: ParkingRecord[];
@@ -282,7 +286,12 @@ export function ParkingProvider({ children }: PropsWithChildren) {
       const controller = new AbortController();
       abortRef.current = controller;
       void locationService
-        .locate(controller.signal)
+        .locate(
+          controller.signal,
+          progressRef.current?.remeasureCount
+            ? undefined
+            : { detectedAt: progressRef.current?.disconnectedAt ?? new Date().toISOString() },
+        )
         .then((result) => {
           if (controller.signal.aborted) return;
           updateIf(runId, ['locating'], (current) => {
@@ -502,7 +511,8 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     void Promise.all([
       loadParkingProgressRaw().catch(() => null),
       listRecords().catch(() => null),
-    ]).then(([raw, savedRecords]) => {
+      isNativeDeviceMode ? nativeBluetooth.snapshot().catch(() => null) : Promise.resolve(null),
+    ]).then(([raw, savedRecords, bluetooth]) => {
       if (!active) return;
       restoringRef.current = false;
       if (savedRecords) {
@@ -517,6 +527,16 @@ export function ParkingProvider({ children }: PropsWithChildren) {
         );
       } else setRecordsError(RECORDS_ERROR);
       let restored = parseProgress(raw);
+      if (
+        restored &&
+        bluetooth &&
+        (bluetooth.connected === true ||
+          (bluetooth.lastConnectedAt ?? 0) > Date.parse(restored.disconnectedAt))
+      ) {
+        restored = null;
+        setProgress(null);
+        setCancelNotice('차량이 다시 연결되어 주차 확인을 취소했어요.');
+      }
       if (restored?.phase === 'confirming-location') {
         restored = { ...restored, timer: restoreTimer(restored.timer, Date.now()) };
       }
@@ -529,7 +549,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     return () => {
       active = false;
     };
-  }, [runLocate, runAnalysis]);
+  }, [runLocate, runAnalysis, setProgress]);
 
   // ── 서버 연결 시: 로그인한 계정이 바뀌면 서버 기록으로 다시 맞춘다.
   const userId = snapshot.user?.id ?? null;
@@ -598,31 +618,60 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     setProgress(null);
   }, [setProgress]);
 
-  const simulateDisconnect = useCallback(async () => {
-    if (!snapshot.vehicle || restoringRef.current) return;
-    const startedIn = epoch.current;
-    await updateDevice({ vehicleConnected: false });
-    if (progressRef.current || startedIn !== epoch.current) return;
-    setLastCompleted(null);
-    setProgress({
-      runId: createId('run'),
-      disconnectedAt: new Date().toISOString(),
-      phase: 'suspected',
-      remeasureCount: 0,
-    });
-  }, [snapshot.vehicle, updateDevice, setProgress]);
+  const handleDisconnect = useCallback(
+    async (at: string, lastConnectedAt = 0) => {
+      if (!snapshotRef.current.vehicle || restoringRef.current) return;
+      const previous = progressRef.current;
+      if (previous && lastConnectedAt > Date.parse(previous.disconnectedAt)) {
+        cancelProgress();
+        setCancelNotice('차량이 다시 연결되어 이전 주차 확인을 취소했어요.');
+      }
+      const startedIn = epoch.current;
+      await updateDevice({ vehicleConnected: false });
+      if (progressRef.current || startedIn !== epoch.current) return;
+      setLastCompleted(null);
+      setProgress({
+        runId: createId('run'),
+        disconnectedAt: at,
+        phase: 'suspected',
+        remeasureCount: 0,
+      });
+      await writeQueue.current;
+    },
+    [updateDevice, setProgress, cancelProgress],
+  );
 
-  const simulateReconnect = useCallback(async () => {
-    // 완료 전 재연결: 진행·예약·늦은 응답을 정리하고 새 기록을 남기지 않는다.
-    const hadProgress = Boolean(progressRef.current || reanalysisRef.current);
-    cancelProgress();
-    if (hadProgress) setCancelNotice('차량이 다시 연결되어 주차 확인을 취소했어요.');
-    await updateDevice({ vehicleConnected: true });
-    setReconnectEvent((previous) => ({
-      seq: (previous?.seq ?? 0) + 1,
-      at: new Date().toISOString(),
-    }));
-  }, [cancelProgress, updateDevice]);
+  const handleReconnect = useCallback(
+    async (at: string, stateOnly = false) => {
+      // 완료 전 재연결: 진행·예약·늦은 응답을 정리하고 새 기록을 남기지 않는다.
+      const hadProgress = Boolean(progressRef.current || reanalysisRef.current);
+      if (stateOnly && !hadProgress) return;
+      cancelProgress();
+      if (hadProgress) setCancelNotice('차량이 다시 연결되어 주차 확인을 취소했어요.');
+      await updateDevice({ vehicleConnected: true });
+      if (!stateOnly)
+        setReconnectEvent((previous) => ({
+          seq: (previous?.seq ?? 0) + 1,
+          at,
+        }));
+      await writeQueue.current;
+    },
+    [cancelProgress, updateDevice],
+  );
+
+  const simulateDisconnect = useCallback(
+    () => handleDisconnect(new Date().toISOString()),
+    [handleDisconnect],
+  );
+  const simulateReconnect = useCallback(
+    () => handleReconnect(new Date().toISOString()),
+    [handleReconnect],
+  );
+  const deviceError = useVehicleBluetooth({
+    ready: !isRestoring,
+    onDisconnect: handleDisconnect,
+    onReconnect: handleReconnect,
+  });
 
   const startLocating = useCallback(() => {
     const current = progressRef.current;
@@ -853,7 +902,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   // ── 시연: 예약한 단계에 도달하면 등록 차량 재연결을 발생시킨다.
   const phase = progress?.phase;
   useEffect(() => {
-    if (!phase || demoControl.get().reconnectAt !== phase) return;
+    if (isNativeDeviceMode || !phase || demoControl.get().reconnectAt !== phase) return;
     const timeout = setTimeout(() => {
       if (progressRef.current?.phase !== phase) return;
       demoControl.set({ reconnectAt: null });
@@ -864,6 +913,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
 
   const value = useMemo<ParkingContextValue>(
     () => ({
+      deviceError,
       progress,
       isRestoring,
       records,
@@ -899,6 +949,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
       cancelAll,
     }),
     [
+      deviceError,
       progress,
       isRestoring,
       records,

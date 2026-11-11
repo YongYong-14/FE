@@ -43,6 +43,8 @@ export interface DemoDeviceState {
   bluetoothEnabled: boolean;
   /** 등록 차량과의 현재 연결 여부. 등록 여부와 별개다. */
   vehicleConnected: boolean;
+  /** 실제 OS 연결 상태를 확인했는지. false면 연결됨/해제됨으로 단정하지 않는다. */
+  vehicleConnectionKnown?: boolean;
 }
 
 export interface SessionSnapshot {
@@ -64,6 +66,7 @@ export function createInitialDevice(): DemoDeviceState {
     bluetoothPermission: 'unset',
     bluetoothEnabled: true,
     vehicleConnected: true,
+    vehicleConnectionKnown: true,
   };
 }
 

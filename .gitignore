@@ -9,6 +9,8 @@ expo-env.d.ts
 # Generated native projects (Expo CNG)
 /android/
 /ios/
+modules/**/android/build/
+modules/**/android/.gradle/
 
 # Local environment and credentials
 .env

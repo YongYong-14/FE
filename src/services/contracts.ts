@@ -75,7 +75,7 @@ export type LocateResult =
   | { kind: 'unavailable'; reason: string };
 
 export interface LocationService {
-  locate(signal?: AbortSignal): Promise<LocateResult>;
+  locate(signal?: AbortSignal, options?: { detectedAt: string }): Promise<LocateResult>;
 }
 
 export interface PlaceService {

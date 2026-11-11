@@ -1,9 +1,15 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { AppState, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSession } from '@/features/auth';
-import { bluetoothDeviceService, describeError, vehicleService } from '@/services';
+import {
+  bluetoothDeviceService,
+  describeError,
+  isNativeDeviceMode,
+  vehicleService,
+} from '@/services';
+import { nativeBluetooth } from '@/services/device/bluetooth';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
 import { IconButton } from '@/shared/components/IconButton';
@@ -81,18 +87,18 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
   const currentAddress = snapshot.vehicle?.bluetoothAddress ?? null;
   const [selected, setSelected] = useState<string | null>(currentAddress);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const { run, isRunning, error } = useAsyncAction((cause) =>
     describeError(cause, '다시 시도해 주세요.'),
   );
 
   const load = useCallback(async () => {
     setIsLoading(true);
-    setLoadError(false);
+    setLoadError(null);
     try {
       setVehicles(await bluetoothDeviceService.listPairedDevices());
-    } catch {
-      setLoadError(true);
+    } catch (cause) {
+      setLoadError(cause instanceof Error ? cause.message : '기기 목록을 불러오지 못했어요.');
     } finally {
       setIsLoading(false);
     }
@@ -105,8 +111,9 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
       .then((items) => {
         if (active) setVehicles(items);
       })
-      .catch(() => {
-        if (active) setLoadError(true);
+      .catch((cause: unknown) => {
+        if (active)
+          setLoadError(cause instanceof Error ? cause.message : '기기 목록을 불러오지 못했어요.');
       })
       .finally(() => {
         if (active) setIsLoading(false);
@@ -115,6 +122,14 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isNativeDeviceMode) return;
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void load();
+    });
+    return () => listener.remove();
+  }, [load]);
 
   const busy = isRunning || isSaving;
   const unchanged = isChange && selected !== null && selected === currentAddress;
@@ -133,7 +148,12 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
           ) : null}
           <Button
             label={isChange ? '이 차량으로 변경하기' : '등록하고 시작하기'}
-            disabled={!selected || isLoading || vehicles.length === 0 || unchanged}
+            disabled={
+              !selected ||
+              isLoading ||
+              !vehicles.some((device) => device.address === selected) ||
+              unchanged
+            }
             loading={busy}
             onPress={() =>
               void run(async () => {
@@ -145,9 +165,32 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
               })
             }
           />
-          <AppText variant="micro" tone="secondary" style={styles.center}>
-            데모 기기 목록이에요. 실제 블루투스 탐색은 하지 않아요.
-          </AppText>
+          {isNativeDeviceMode ? (
+            <>
+              <Button
+                label="블루투스 설정 열기"
+                variant="ghost"
+                size="md"
+                disabled={busy}
+                onPress={() => void run(nativeBluetooth.openSettings)}
+              />
+              <Button
+                label="기기 목록 새로고침"
+                variant="ghost"
+                size="md"
+                disabled={busy || isLoading}
+                onPress={() => void load()}
+              />
+              <AppText variant="micro" tone="secondary" style={styles.center}>
+                휴대폰에 등록된 기기 중 하나를 선택해요. 시연할 때는 이어폰이나 스피커도 등록할 수
+                있어요.
+              </AppText>
+            </>
+          ) : (
+            <AppText variant="micro" tone="secondary" style={styles.center}>
+              웹 시연용 기기 목록이에요.
+            </AppText>
+          )}
         </>
       }
     >
@@ -175,9 +218,19 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
         <StateView
           icon="alert-circle-outline"
           title="기기 목록을 불러오지 못했어요"
-          description="잠시 후 다시 찾아 주세요."
+          description={loadError}
           actions={
-            <Button label="다시 찾기" variant="outline" size="md" onPress={() => void load()} />
+            <View style={{ gap: spacing.sm }}>
+              <Button label="다시 찾기" variant="outline" size="md" onPress={() => void load()} />
+              {isNativeDeviceMode ? (
+                <Button
+                  label="앱 권한 설정"
+                  variant="ghost"
+                  size="md"
+                  onPress={() => void run(nativeBluetooth.openAppSettings)}
+                />
+              ) : null}
+            </View>
           }
         />
       ) : vehicles.length === 0 ? (

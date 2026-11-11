@@ -22,6 +22,7 @@ import { BottomBanner, Notice } from '@/shared/components/Notice';
 import { Card, IconTile, SheetSurface } from '@/shared/components/Surface';
 import { colors, radii, shadows, spacing } from '@/shared/theme/tokens';
 import { hasDetectionPermissions } from '@/shared/types/session';
+import { isNativeDeviceMode, nativeBluetooth } from '@/services/device/bluetooth';
 import { dataPeriodLabel } from '@/shared/utils/format';
 
 const MARKER = { left: '60%', top: '40%' } as const;
@@ -76,6 +77,7 @@ export function HomeScreen() {
     cancelNotice,
     clearCancelNotice,
     latest: latestInfo,
+    deviceError,
   } = useParking();
   const { device, vehicle } = snapshot;
   // 최근 주차는 서버의 GET /parking-events/latest가 기준이다(데모는 기기 기록).
@@ -100,21 +102,25 @@ export function HomeScreen() {
     return () => clearTimeout(timeout);
   }, [cancelNotice, clearCancelNotice]);
 
-  const status = !permitted
-    ? { title: '감지가 제한돼요', detail: '권한을 확인해 주세요', dot: colors.warning }
-    : !device.bluetoothEnabled
-      ? {
-          title: '블루투스가 꺼져 있어요',
-          detail: '켜야 감지할 수 있어요',
-          dot: colors.warning,
-        }
-      : { title: '주차 감지 켜짐', detail: '연결 해제 시 위치 확인', dot: colors.primary };
+  const status = deviceError
+    ? { title: '감지가 제한돼요', detail: '기기 연결을 확인해 주세요', dot: colors.warning }
+    : !permitted
+      ? { title: '감지가 제한돼요', detail: '권한을 확인해 주세요', dot: colors.warning }
+      : !device.bluetoothEnabled
+        ? {
+            title: '블루투스가 꺼져 있어요',
+            detail: '켜야 감지할 수 있어요',
+            dot: colors.warning,
+          }
+        : { title: '주차 감지 켜짐', detail: '연결 해제 시 위치 확인', dot: colors.primary };
 
   const connection: { label: string; tone: BadgeTone } = !device.bluetoothEnabled
     ? { label: '연결 안 됨', tone: 'neutral' }
-    : device.vehicleConnected
-      ? { label: '연결됨', tone: 'primary' }
-      : { label: '연결 해제됨', tone: 'warning' };
+    : isNativeDeviceMode && (deviceError || device.vehicleConnectionKnown !== true)
+      ? { label: '상태 확인 중', tone: 'neutral' }
+      : device.vehicleConnected
+        ? { label: '연결됨', tone: 'primary' }
+        : { label: '연결 해제됨', tone: 'warning' };
 
   const zoneTone =
     latest?.status === 'level-1' ? 'danger' : latest?.status === 'level-2' ? 'warning' : null;
@@ -161,6 +167,9 @@ export function HomeScreen() {
             contentContainerStyle={styles.sheetContent}
             showsVerticalScrollIndicator={false}
           >
+            {deviceError ? (
+              <Notice title="기기 연결을 확인해 주세요" description={deviceError} />
+            ) : null}
             {cancelNotice ? (
               <Pressable onPress={clearCancelNotice} accessibilityHint="안내 닫기">
                 <Notice
@@ -262,7 +271,7 @@ export function HomeScreen() {
 
             {!permitted ? (
               <BottomBanner
-                message="위치 권한이 ‘항상 허용’이 아니거나 블루투스 권한이 없어서 앱을 닫으면 감지할 수 없어요"
+                message="주차 위치와 연결 상태를 확인하려면 위치 ‘항상 허용’과 근처 기기 권한을 확인해 주세요"
                 actionLabel="권한 설정"
                 onAction={() => router.push('/settings/permissions')}
               />
@@ -270,7 +279,11 @@ export function HomeScreen() {
               <BottomBanner
                 message="휴대폰 블루투스가 꺼져 있어요. 켜야 주차를 감지할 수 있어요"
                 actionLabel="블루투스 켜기"
-                onAction={() => void updateDevice({ bluetoothEnabled: true })}
+                onAction={() =>
+                  isNativeDeviceMode
+                    ? void nativeBluetooth.openSettings().catch(() => undefined)
+                    : void updateDevice({ bluetoothEnabled: true })
+                }
               />
             ) : null}
           </ScrollView>

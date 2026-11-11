@@ -16,6 +16,7 @@ import { mapService, placeService } from '@/services';
 import { AppText } from '@/shared/components/AppText';
 import { Icon } from '@/shared/components/Icon';
 import { IconButton } from '@/shared/components/IconButton';
+import { useDeviceLocation } from '@/shared/hooks/useDeviceLocation';
 import { GeoMap, TILE_ATTRIBUTION, TILE_ATTRIBUTION_URL } from '@/shared/map/GeoMap';
 import {
   CountBubble,
@@ -195,8 +196,10 @@ const clampZoom = (zoom: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
  * 검색과 선택만으로 주차 분석을 시작하지 않는다.
  */
 export function MapScreen() {
-  const current: Coordinate = mapService.currentLocation();
-  const [view, setView] = useState<MapView>({ center: current, zoom: DEFAULT_ZOOM });
+  const gps = useDeviceLocation();
+  const current: Coordinate = gps.coordinate ?? mapService.currentLocation();
+  const [selectedView, setView] = useState<MapView | null>(null);
+  const view = selectedView ?? { center: current, zoom: DEFAULT_ZOOM };
   const [size, setSize] = useState<ViewSize>({ width: 0, height: 0 });
   const [boxCache, setBoxCache] = useState<Record<string, BoxEntry>>({});
   const inFlight = useRef(new Set<string>());
@@ -318,8 +321,8 @@ export function MapScreen() {
 
   function zoomBy(step: number) {
     setView((previous) => ({
-      center: previous.center,
-      zoom: clampZoom(Math.round(previous.zoom) + step),
+      center: previous?.center ?? current,
+      zoom: clampZoom(Math.round(previous?.zoom ?? DEFAULT_ZOOM) + step),
     }));
   }
 
@@ -342,7 +345,7 @@ export function MapScreen() {
     // 고른 장소로 지도를 옮긴다(멀리 축소해 있었다면 기본 확대 단계로).
     setView((previous) => ({
       center: place.coordinate,
-      zoom: Math.max(previous.zoom, DEFAULT_ZOOM),
+      zoom: Math.max(previous?.zoom ?? DEFAULT_ZOOM, DEFAULT_ZOOM),
     }));
   }
 
@@ -354,7 +357,9 @@ export function MapScreen() {
 
   function moveToCurrent() {
     clear();
-    setView({ center: current, zoom: DEFAULT_ZOOM });
+    void gps.refresh().then((coordinate) => {
+      if (coordinate) setView({ center: coordinate, zoom: DEFAULT_ZOOM });
+    });
   }
 
   const showResults = focused && query.trim().length > 0 && !selected;
@@ -383,7 +388,9 @@ export function MapScreen() {
               />
             ))
           : null}
-        {ready ? <LocationDot point={{ left: currentPoint.x, top: currentPoint.y }} /> : null}
+        {ready && gps.coordinate ? (
+          <LocationDot point={{ left: currentPoint.x, top: currentPoint.y }} />
+        ) : null}
         {ready && selected && selectedPoint ? (
           <PlacePin point={{ left: selectedPoint.x, top: selectedPoint.y }} label={selected.name} />
         ) : null}
@@ -540,7 +547,9 @@ export function MapScreen() {
           <AppText variant="micro" tone="secondary" style={styles.note}>
             {zoneStatus === 'loading'
               ? '위험 구역을 불러오고 있어요'
-              : [basis, hint ?? '칸이 없다고 안전하다는 뜻은 아니에요'].filter(Boolean).join(' · ')}
+              : [gps.error, basis, hint ?? '칸이 없다고 안전하다는 뜻은 아니에요']
+                  .filter(Boolean)
+                  .join(' · ')}
           </AppText>
           <Pressable
             onPress={() => void Linking.openURL(TILE_ATTRIBUTION_URL)}

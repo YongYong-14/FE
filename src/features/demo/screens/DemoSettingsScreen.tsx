@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { describeError, systemService } from '@/services';
+import { describeError, isNativeDeviceMode, systemService } from '@/services';
 
 import { ParkingDemoPanel } from '@/features/parking';
 
@@ -75,7 +75,7 @@ export function DemoSettingsScreen() {
       <AppText variant="subtitle" weight="bold" accessibilityRole="header">
         시연 시나리오
       </AppText>
-      <ScenarioGroups />
+      {!isNativeDeviceMode ? <ScenarioGroups /> : null}
       <AppText variant="subtitle" weight="bold" accessibilityRole="header" style={styles.section}>
         세부 설정
       </AppText>

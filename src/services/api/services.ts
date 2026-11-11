@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 
 import { demoGpsPlace } from '../fixtures/places';
+import { currentDeviceCoordinate } from '../device/location';
 import type {
   AccountService,
   AnalysisService,
@@ -55,7 +56,7 @@ export const apiAccountService: AccountService = {
     return {
       user: {
         id: response.user.id,
-        nickname: response.user.nickname,
+        nickname: response.user.nickname?.trim() || '운전자',
         profileImageUrl: response.user.profileImageUrl,
       },
       isNewUser: response.isNewUser,
@@ -70,7 +71,7 @@ export const apiAccountService: AccountService = {
     try {
       const me = await endpoints.getMe();
       return {
-        user: { id: me.id, nickname: me.nickname, email: me.email },
+        user: { id: me.id, nickname: me.nickname?.trim() || '운전자', email: me.email },
         hasVehicle: me.hasVehicle,
         missingAgreements: missingAgreementsFrom(me.agreements, apiConfig.agreementVersion),
       };
@@ -216,8 +217,8 @@ export const apiRecordService: RecordService = {
 };
 
 export const apiMapService: MapService = {
-  // 기기 GPS 연동 전에는 데모 현재 위치를 지도 기준점으로 쓴다.
-  currentLocation: () => demoGpsPlace.coordinate,
+  // 아직 GPS가 없으면 지도 시작 중심만 용인시로 둔다. 실제 현재 위치 표시는 GPS 조회 후 한다.
+  currentLocation: () => currentDeviceCoordinate() ?? demoGpsPlace.coordinate,
   async riskZones(bounds, at) {
     return toRiskZoneData(await endpoints.getRiskZones({ ...bounds, at }));
   },

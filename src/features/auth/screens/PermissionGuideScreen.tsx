@@ -19,6 +19,8 @@ import type {
 } from '@/shared/types/session';
 
 import { useSession } from '../state/SessionProvider';
+import { isNativeDeviceMode } from '@/services/device/bluetooth';
+import { NativePermissionGuideScreen } from './NativePermissionGuideScreen';
 
 type Step = 'location' | 'location-always' | 'bluetooth' | 'battery' | null;
 
@@ -125,6 +127,14 @@ export function PermissionGuideScreen({
 }: {
   mode?: 'onboarding' | 'settings';
 }) {
+  return isNativeDeviceMode ? (
+    <NativePermissionGuideScreen mode={mode} />
+  ) : (
+    <DemoPermissionGuideScreen mode={mode} />
+  );
+}
+
+function DemoPermissionGuideScreen({ mode = 'onboarding' }: { mode?: 'onboarding' | 'settings' }) {
   const router = useRouter();
   const { snapshot, completeOnboarding, updateDevice, isSaving } = useSession();
   const { run, isRunning, error } = useAsyncAction();

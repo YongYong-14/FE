@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react';
 
-import { accountService, isApiMode, vehicleService } from '@/services';
+import { accountService, isApiMode, isNativeDeviceMode, vehicleService } from '@/services';
 import {
   createInitialSession,
   missingAgreementsOf,
@@ -83,13 +83,16 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   /** 서버 연결 시: 저장된 토큰으로 내 정보·약관·차량을 다시 맞춘다. 오프라인이면 저장값을 유지한다. */
   const restoreRemote = useCallback(async () => {
-    if (!isApiMode || !current.current.user) return;
+    if (!isApiMode) return;
     const startedIn = generation.current;
+    const startingUserId = current.current.user?.id;
+    const canRestore = () =>
+      startedIn === generation.current && current.current.user?.id === startingUserId;
     try {
       const profile = await accountService.restore();
-      if (startedIn !== generation.current) return;
+      if (!canRestore()) return;
       if (!profile) {
-        await commit((previous) => ({ ...previous, user: null }));
+        await commit((previous) => (canRestore() ? { ...previous, user: null } : previous));
         return;
       }
       let vehicle: RegisteredVehicle | null | undefined;
@@ -98,14 +101,21 @@ export function SessionProvider({ children }: PropsWithChildren) {
       } catch {
         vehicle = undefined;
       }
-      if (startedIn !== generation.current) return;
-      await commit((previous) => ({
-        ...previous,
-        user: { ...previous.user, ...profile.user },
-        missingAgreements: profile.missingAgreements,
-        ownerId: profile.user.id,
-        vehicle: vehicle === undefined ? previous.vehicle : mergeVehicle(vehicle, previous.vehicle),
-      }));
+      if (!canRestore()) return;
+      await commit((previous) =>
+        canRestore()
+          ? {
+              ...previous,
+              user: { ...previous.user, ...profile.user },
+              missingAgreements: profile.missingAgreements,
+              ownerId: profile.user.id,
+              onboardingCompleted:
+                previous.onboardingCompleted || (!startingUserId && Boolean(vehicle)),
+              vehicle:
+                vehicle === undefined ? previous.vehicle : mergeVehicle(vehicle, previous.vehicle),
+            }
+          : previous,
+      );
     } catch {
       // 네트워크 오류: 저장된 로그인으로 계속 쓰고, 다음 요청에서 다시 확인한다.
     }
@@ -234,6 +244,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const clearSessionNotice = useCallback(() => setSessionNotice(null), []);
+  const updateDevice = useCallback(
+    (patch: Partial<DemoDeviceState>) =>
+      commit((previous) => ({ ...previous, device: { ...previous.device, ...patch } })),
+    [commit],
+  );
 
   const value = useMemo<SessionContextValue>(
     () => ({
@@ -258,14 +273,17 @@ export function SessionProvider({ children }: PropsWithChildren) {
           ...previous,
           vehicle,
           ownerId: previous.user?.id ?? previous.ownerId ?? null,
-          device: { ...previous.device, vehicleConnected: true },
+          device: {
+            ...previous.device,
+            vehicleConnected: !isNativeDeviceMode,
+            vehicleConnectionKnown: !isNativeDeviceMode,
+          },
         })),
       syncVehicle,
       signOut,
       withdraw,
       setSurveyEnabled: (surveyEnabled) => commit((previous) => ({ ...previous, surveyEnabled })),
-      updateDevice: (patch) =>
-        commit((previous) => ({ ...previous, device: { ...previous.device, ...patch } })),
+      updateDevice,
       resetSession,
     }),
     [
@@ -284,6 +302,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       signOut,
       withdraw,
       resetSession,
+      updateDevice,
     ],
   );
 

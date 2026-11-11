@@ -6,7 +6,8 @@ import { ParkingLotSortDropdown } from '../components/ParkingLotSortDropdown';
 import { sortParkingLots, type ParkingLotSort } from '../utils/sortParkingLots';
 import { useSession } from '@/features/auth';
 import { useParking } from '@/features/parking';
-import { isApiError, mapService, parkingLotService } from '@/services';
+import { isApiError, isNativeDeviceMode, mapService, parkingLotService } from '@/services';
+import { useDeviceLocation } from '@/shared/hooks/useDeviceLocation';
 import { AppModal } from '@/shared/components/AppModal';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
@@ -79,7 +80,9 @@ export function ParkingLotsScreen() {
   const { records, latest } = useParking();
   const parkedAt =
     latest?.coordinate ?? records.find((record) => record.place.coordinate)?.place.coordinate;
-  const origin = parkedAt ?? mapService.currentLocation();
+  const gps = useDeviceLocation(!parkedAt);
+  const origin = parkedAt ?? gps.coordinate ?? mapService.currentLocation();
+  const missingLocation = isNativeDeviceMode && !parkedAt && !gps.coordinate;
   const [radius, setRadius] = useState<Radius>(500);
   const [openOnly, setOpenOnly] = useState(true);
   const [publicOnly, setPublicOnly] = useState(false);
@@ -97,6 +100,7 @@ export function ParkingLotsScreen() {
   const requestKey = `${latitude},${longitude},${radius},${reloadKey}`;
 
   useEffect(() => {
+    if (missingLocation) return;
     let active = true;
     parkingLotService
       .search({ latitude, longitude }, radius)
@@ -116,7 +120,7 @@ export function ParkingLotsScreen() {
     return () => {
       active = false;
     };
-  }, [latitude, longitude, radius, requestKey]);
+  }, [latitude, longitude, radius, requestKey, missingLocation]);
 
   const loading = loadedKey !== requestKey;
   const effectiveRadius: Radius = expanded ? 1000 : radius;
@@ -235,7 +239,22 @@ export function ParkingLotsScreen() {
         </ScrollView>
 
         <ScrollView ref={list} style={styles.list} contentContainerStyle={styles.listContent}>
-          {loading ? (
+          {missingLocation ? (
+            <StateView
+              loading={gps.loading}
+              icon="location-outline"
+              title={gps.loading ? '현재 위치를 확인하고 있어요' : '현재 위치를 확인해 주세요'}
+              description={gps.error ?? '위치 권한과 휴대폰 GPS를 확인해 주세요.'}
+              actions={
+                <Button
+                  label="위치 다시 확인"
+                  variant="outline"
+                  size="md"
+                  onPress={() => void gps.refresh()}
+                />
+              }
+            />
+          ) : loading ? (
             <View style={styles.loading}>
               <ActivityIndicator color={colors.primary} />
             </View>

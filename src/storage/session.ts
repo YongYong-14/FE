@@ -41,6 +41,8 @@ function parseDevice(value: unknown): DemoDeviceState {
       typeof value.vehicleConnected === 'boolean'
         ? value.vehicleConnected
         : fallback.vehicleConnected,
+    vehicleConnectionKnown:
+      typeof value.vehicleConnectionKnown === 'boolean' ? value.vehicleConnectionKnown : false,
   };
 }
 
@@ -56,7 +58,7 @@ export function parseSession(raw: string | null): SessionSnapshot {
     (value.user !== null &&
       (!hasNamedId(value.user) ||
         !isObject(value.user) ||
-        typeof value.user.nickname !== 'string')) ||
+        (value.user.nickname != null && typeof value.user.nickname !== 'string'))) ||
     (value.vehicle !== null &&
       (!hasNamedId(value.vehicle) ||
         !isObject(value.vehicle) ||
@@ -67,6 +69,15 @@ export function parseSession(raw: string | null): SessionSnapshot {
 
   return {
     ...(value as unknown as Omit<SessionSnapshot, 'device'>),
+    user: isObject(value.user)
+      ? ({
+          ...value.user,
+          nickname:
+            typeof value.user.nickname === 'string' && value.user.nickname.trim()
+              ? value.user.nickname
+              : '운전자',
+        } as unknown as SessionSnapshot['user'])
+      : null,
     device: parseDevice(value.device),
     missingAgreements: Array.isArray(value.missingAgreements)
       ? value.missingAgreements.filter((type): type is AgreementType =>

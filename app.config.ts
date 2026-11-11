@@ -5,6 +5,10 @@ const plugins: NonNullable<ExpoConfig['plugins']> = [
   'expo-router',
   ['expo-splash-screen', { backgroundColor: '#f5f5f5' }],
   [
+    'expo-location',
+    { isAndroidBackgroundLocationEnabled: true, isAndroidForegroundServiceEnabled: false },
+  ],
+  [
     'expo-build-properties',
     {
       android: {
@@ -32,11 +36,7 @@ const config: ExpoConfig = {
     versionCode: 1,
     blockedPermissions: [
       'android.permission.POST_NOTIFICATIONS',
-      'android.permission.ACCESS_FINE_LOCATION',
-      'android.permission.ACCESS_COARSE_LOCATION',
-      'android.permission.ACCESS_BACKGROUND_LOCATION',
       'android.permission.BLUETOOTH_SCAN',
-      'android.permission.BLUETOOTH_CONNECT',
       'android.permission.RECORD_AUDIO',
     ],
   },

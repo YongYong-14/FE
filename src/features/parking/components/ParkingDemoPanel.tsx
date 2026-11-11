@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { useSession } from '@/features/auth';
-import { demoControl, isApiMode, type DemoScenario } from '@/services';
+import { demoControl, isApiMode, isNativeDeviceMode, type DemoScenario } from '@/services';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
 import { Card } from '@/shared/components/Surface';
@@ -73,6 +73,17 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function ParkingDemoPanel() {
+  return isNativeDeviceMode ? (
+    <AppText variant="body">
+      Android에서는 실제 기기의 연결 상태와 GPS를 사용해요. 등록한 이어폰·스피커의 전원을 끄거나
+      켜서 연결 해제·재연결을 시연해 주세요.
+    </AppText>
+  ) : (
+    <DemoPanelBody />
+  );
+}
+
+function DemoPanelBody() {
   const { snapshot, updateDevice } = useSession();
   const parking = useParking();
   const [scenario, setScenario] = useState<DemoScenario>(demoControl.get());
