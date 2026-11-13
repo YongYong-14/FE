@@ -31,12 +31,6 @@ export function periodRangeLabel(period: DataPeriod | null | undefined): string 
     : `${startYear}년 ${startMonth}월~${endYear}년 ${endMonth}월`;
 }
 
-/** 예: "신고 데이터 2025년 1~9월" */
-export function dataPeriodLabel(period: DataPeriod | null | undefined): string | null {
-  const range = periodRangeLabel(period);
-  return range ? `신고 데이터 ${range}` : null;
-}
-
 /** 예: 80000 → "8만 원", 45000 → "45,000원" */
 export function formatWon(amount: number): string {
   if (amount >= 10_000 && amount % 10_000 === 0) return `${amount / 10_000}만 원`;

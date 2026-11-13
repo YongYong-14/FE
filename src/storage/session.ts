@@ -5,7 +5,7 @@ import {
   createInitialSession,
   requiredAgreements,
   type AgreementType,
-  type DemoDeviceState,
+  type DeviceState,
   type SessionSnapshot,
 } from '@/shared/types/session';
 
@@ -23,15 +23,15 @@ const locationValues = ['unset', 'denied', 'foreground', 'always'];
 const bluetoothValues = ['unset', 'denied', 'granted'];
 
 /** 이전 버전 저장값에는 device가 없으므로 기본값으로 채운다. */
-function parseDevice(value: unknown): DemoDeviceState {
+function parseDevice(value: unknown): DeviceState {
   const fallback = createInitialDevice();
   if (!isObject(value)) return fallback;
   return {
     locationPermission: locationValues.includes(value.locationPermission as string)
-      ? (value.locationPermission as DemoDeviceState['locationPermission'])
+      ? (value.locationPermission as DeviceState['locationPermission'])
       : fallback.locationPermission,
     bluetoothPermission: bluetoothValues.includes(value.bluetoothPermission as string)
-      ? (value.bluetoothPermission as DemoDeviceState['bluetoothPermission'])
+      ? (value.bluetoothPermission as DeviceState['bluetoothPermission'])
       : fallback.bluetoothPermission,
     bluetoothEnabled:
       typeof value.bluetoothEnabled === 'boolean'
@@ -66,6 +66,8 @@ export function parseSession(raw: string | null): SessionSnapshot {
   ) {
     throw new Error('저장된 정보를 읽지 못했어요. 다시 시도해 주세요.');
   }
+
+  if (isObject(value.user) && value.user.id === 'demo-user') return createInitialSession();
 
   return {
     ...(value as unknown as Omit<SessionSnapshot, 'device'>),

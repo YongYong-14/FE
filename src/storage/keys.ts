@@ -7,7 +7,8 @@ export const storageKeys = {
   records: '@seulkkamalkka/records:v1',
   surveys: '@seulkkamalkka/surveys:v1',
   authTokens: '@seulkkamalkka/auth-tokens:v1',
-  alerts: '@seulkkamalkka/shown-alerts:v1',
+  // 이전 버전의 알림 표시 기록도 탈퇴·계정 변경 시 정리한다.
+  legacyAlerts: '@seulkkamalkka/shown-alerts:v1',
 } as const;
 
 let generation = 0;

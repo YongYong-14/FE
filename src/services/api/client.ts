@@ -158,7 +158,7 @@ function abortError(): Error {
 }
 
 async function send<T>(path: string, options: RequestOptions, accessToken?: string): Promise<T> {
-  if (!apiConfig.baseUrl) throw new ApiError(0, 'NETWORK_ERROR', 'API 주소가 설정되지 않았어요.');
+  if (!apiConfig.baseUrl) throw new ApiError(0, 'API_CONFIG_MISSING');
   if (options.signal?.aborted) throw abortError();
 
   const controller = new AbortController();

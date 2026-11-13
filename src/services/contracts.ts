@@ -5,7 +5,6 @@ import type {
   AnalysisStatus,
   CrosswalkAnswer,
   LatestParking,
-  ParkingAlert,
   ParkingRecord,
   ParkingSubmission,
   RecordPlace,
@@ -17,7 +16,7 @@ import type {
   SessionUser,
 } from '@/shared/types/session';
 
-// 기능 코드가 사용하는 내부 호출 규격. 데모(services/demo)와 서버 API(services/api)가 같은 규격을 구현한다.
+// 기능 코드가 사용하는 서버 API·기기 서비스 호출 규격.
 
 export interface SignInResult {
   user: SessionUser;
@@ -54,22 +53,6 @@ export interface VehicleService {
   register(device: PairedDevice): Promise<RegisteredVehicle>;
 }
 
-export interface NotificationSettings {
-  /** 1단계 위험 알림. 항상 켜져 있고 바꿀 수 없다. */
-  dangerEnabled: boolean;
-  /** 2단계 주의 알림. */
-  cautionEnabled: boolean;
-  /** 22시~다음 날 7시 2단계 알림. */
-  nightEnabled: boolean;
-}
-
-export interface NotificationSettingsService {
-  get(): Promise<NotificationSettings>;
-  update(
-    patch: Partial<Pick<NotificationSettings, 'cautionEnabled' | 'nightEnabled'>>,
-  ): Promise<NotificationSettings>;
-}
-
 export type LocateResult =
   | { kind: 'located'; place: SelectedPlace; accuracyMeters: number }
   | { kind: 'unavailable'; reason: string };
@@ -79,7 +62,7 @@ export interface LocationService {
 }
 
 export interface PlaceService {
-  search(query: string): Promise<SelectedPlace[]>;
+  search(query: string, signal?: AbortSignal): Promise<SelectedPlace[]>;
 }
 
 export interface AnalysisInput {
@@ -98,17 +81,10 @@ export interface AnalysisOutcome {
   address: string | null;
   /** 같은 요청으로 다시 판정할 수 있는지. */
   retryable: boolean;
-  /** 앱이 띄울 알림. 서버 결정이 SEND일 때만 있다. */
-  alert: ParkingAlert | null;
 }
-
-export type DeliveryResult =
-  { deliveredAt: string } | { failure: 'NO_PERMISSION' | 'DISPLAY_FAILED' | 'UNKNOWN' };
 
 export interface AnalysisService {
   analyze(input: AnalysisInput, signal?: AbortSignal): Promise<AnalysisOutcome>;
-  /** 앱이 알림을 실제로 띄운 뒤(또는 못 띄운 뒤) 결과를 보고한다. */
-  reportDelivery(recordId: string, result: DeliveryResult): Promise<void>;
 }
 
 export interface RecordService {
@@ -131,7 +107,7 @@ export interface ParkingLotService {
 }
 
 export interface SystemService {
-  mode: 'api' | 'demo';
+  mode: 'api';
   /** 서버 연결 시 API 기본 주소. */
   baseUrl: string | null;
   health(): Promise<{ ok: boolean; status: string }>;

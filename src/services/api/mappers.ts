@@ -1,16 +1,17 @@
 import type { Coordinate } from '@/shared/types/location';
 import type { DataPeriod, ParkingLot, ParkingLotType, RiskZoneData } from '@/shared/types/map';
-import type {
-  AnalysisReport,
-  AnalysisStatus,
-  CrosswalkAnswer,
-  ParkingAlert,
-  ParkingRecord,
-  ParkingSubmission,
-  RecordPlace,
-  ReportChart,
-  ReportEvidence,
-  ReportStat,
+import { crosswalkEvidence } from '@/shared/utils/crosswalk';
+import {
+  noRiskFoundCopy,
+  type AnalysisReport,
+  type AnalysisStatus,
+  type CrosswalkAnswer,
+  type ParkingRecord,
+  type ParkingSubmission,
+  type RecordPlace,
+  type ReportChart,
+  type ReportEvidence,
+  type ReportStat,
 } from '@/shared/types/parking';
 import {
   requiredAgreements,
@@ -114,7 +115,7 @@ export function statusOf(assessment: AssessmentLike): AnalysisStatus {
   if (assessment.status === 'SUCCEEDED') {
     if (assessment.level === 1) return 'level-1';
     if (assessment.level === 2) return 'level-2';
-    return 'no-risk-found';
+    return assessment.level === 3 ? 'no-risk-found' : 'insufficient-data';
   }
   if (assessment.status === 'PARTIAL') return 'insufficient-data';
   return 'failed';
@@ -124,16 +125,11 @@ export function statusOf(assessment: AssessmentLike): AnalysisStatus {
 export const retryableOf = (assessment: Pick<AssessmentDto, 'status' | 'attemptCount'>) =>
   assessment.status === 'FAILED' && assessment.attemptCount < 2;
 
-export function zoneName(zoneType: string | null | undefined): string {
+function zoneName(zoneType: string | null | undefined): string {
   if (zoneType === 'HYDRANT') return '소화전';
   if (zoneType === 'BUS_STOP') return '버스정류소';
   return '금지 시설';
 }
-
-const crosswalkEvidence = (answer: CrosswalkAnswer | null): ReportEvidence[] =>
-  answer
-    ? [{ label: '횡단보도 10m 이내 (직접 응답)', value: answer === 'yes' ? '예' : '아니요' }]
-    : [];
 
 const partialSummary: Record<string, string> = {
   OUT_OF_AREA: '용인시 밖이라 위험 여부를 판단하지 못했어요.',
@@ -150,7 +146,9 @@ function peakChart(
   if (max <= 0) return undefined;
   return {
     title: '신고가 몰리는 시간',
-    caption: `${weekdayLabel(peak.weekday)}요일 · ${period ? `${period} 신고` : '신고 데이터'}`,
+    caption: `${weekdayLabel(peak.weekday)}요일, ${period ? `${period} 신고` : '신고 데이터'}`,
+    weekdayLabel: `${weekdayLabel(peak.weekday)}요일`,
+    periodLabel: period ? `${period} 신고` : '신고 데이터',
     bars: peak.slotCounts.map((count) => count / max),
     peakIndex: peak.timeSlot,
     peakLabel: timeSlotLabel(peak.timeSlot),
@@ -186,7 +184,7 @@ export function buildReport(
         ]
       : [];
   const peak = stats && 'peak' in stats ? stats.peak : null;
-  const base = { isExampleData: false, unavailable: [] as string[] };
+  const base = { unavailable: [] as string[] };
 
   switch (status) {
     case 'level-1': {
@@ -211,7 +209,7 @@ export function buildReport(
       return {
         ...base,
         status,
-        badge: `1단계 · ${zone} 주변`,
+        badge: `1단계 ${zone} 주변`,
         headline: `${zone} 주변이에요`,
         evidence: [...evidence, ...crosswalk],
         stats: [...fine, ...reportStat],
@@ -248,7 +246,7 @@ export function buildReport(
       return {
         ...base,
         status,
-        badge: '2단계 · 신고 다발 구역',
+        badge: '2단계 신고 다발 구역',
         headline: '신고가 잦은 곳이에요',
         evidence: [...evidence, ...crosswalk],
         stats: [...reportStat, ...fine],
@@ -260,10 +258,7 @@ export function buildReport(
       return {
         ...base,
         status,
-        badge: '알림 대상 아님',
-        headline: '알림 대상이 아니에요',
-        summary:
-          '금지 시설 근처나 신고 집중 칸으로 확인되지 않았어요. 안전하거나 합법적인 주차라는 뜻은 아니에요.',
+        ...noRiskFoundCopy,
         evidence: crosswalk,
         stats: reportStat,
         chart: peakChart(peak, period),
@@ -276,7 +271,9 @@ export function buildReport(
         headline: '판단할 수 없어요',
         summary:
           partialSummary[assessment.predictionStatus ?? ''] ??
-          '이 위치의 데이터가 충분하지 않아 위험 여부를 판단하지 못했어요.',
+          (assessment.status === 'SUCCEEDED'
+            ? '판정 단계 정보를 확인하지 못해 위험 여부를 판단할 수 없어요.'
+            : '이 위치의 데이터가 충분하지 않아 위험 여부를 판단하지 못했어요.'),
         evidence: crosswalk,
         stats: [],
         unavailable: ['신고 집중도', '시간대별 신고'],
@@ -289,7 +286,7 @@ export function buildReport(
         headline: '분석을 마치지 못했어요',
         summary: retryableOf(assessment)
           ? '서버에서 판정하지 못했어요. 위치와 주차 시각은 그대로 두고 다시 분석할 수 있어요.'
-          : '서버에서 판정하지 못했어요. 알림 없이 기록만 남겨 둬요.',
+          : '서버에서 판정하지 못했어요. 주차 기록은 남겨 뒀어요.',
         evidence: crosswalk,
         stats: [],
       };
@@ -297,7 +294,7 @@ export function buildReport(
 }
 
 /** 기록 목록 항목은 요약만 있으므로 상세를 받기 전까지 짧은 리포트를 쓴다. */
-export function buildSummaryReport(
+function buildSummaryReport(
   item: ParkingEventListItem,
   crosswalkAnswer: CrosswalkAnswer | null,
 ): AnalysisReport {
@@ -342,42 +339,7 @@ export function buildSummaryReport(
   );
 }
 
-/** 서버 결정이 SEND일 때만 앱 알림을 만든다. 표시 직전에 유효기간을 다시 확인한다. */
-export function buildAlert(
-  recordId: string,
-  assessment: AssessmentDto,
-  report: AnalysisReport,
-): ParkingAlert | null {
-  if (assessment.notify?.decision !== 'SEND') return null;
-  if (report.status === 'level-1') {
-    const zone = zoneName(assessment.primaryZoneType);
-    const distance = report.evidence.find((item) => item.label.endsWith('까지 거리'));
-    return {
-      recordId,
-      level: 1,
-      title: `여기는 ${zone} 주변이에요`,
-      body: distance
-        ? `${zone}까지 ${distance.value}예요. 주정차 금지 구역일 수 있어요.`
-        : '주정차 금지 구역일 수 있어요.',
-      expiresAt: assessment.notify.expiresAt,
-    };
-  }
-  if (report.status === 'level-2') {
-    const concentration = report.evidence[0];
-    return {
-      recordId,
-      level: 2,
-      title: '여기는 신고가 잦은 곳이에요',
-      body: concentration
-        ? `${concentration.label.replace(' 신고 집중도', '')} 기준 신고 ${concentration.value}`
-        : '같은 요일·시간대에 신고가 많이 몰리는 곳이에요.',
-      expiresAt: assessment.notify.expiresAt,
-    };
-  }
-  return null;
-}
-
-export function recordPlaceOf(
+function recordPlaceOf(
   id: string,
   address: string | null,
   coordinate: Coordinate | null,
@@ -454,7 +416,7 @@ export function toParkingLot(dto: ParkingLotDto, now: Date = new Date()): Parkin
   return {
     id: dto.id,
     name: dto.name,
-    type: lotTypes[dto.parkingType ?? ''] ?? 'public',
+    type: lotTypes[dto.parkingType ?? ''] ?? 'unknown',
     address: dto.address ?? '주소 정보 없음',
     distanceMeters: dto.distanceM,
     feeType: dto.feeType,
@@ -481,6 +443,5 @@ export function toRiskZoneData(dto: RiskZonesResponse): RiskZoneData {
     })),
     dataPeriod: dto.dataPeriod as DataPeriod | null,
     slot: dto.slot,
-    isExampleData: false,
   };
 }

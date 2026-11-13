@@ -53,7 +53,7 @@ export interface AgreementRequest {
   action: AgreementAction;
 }
 
-// ── 3. 차량·알림 설정
+// ── 3. 차량
 
 export interface VehicleDto {
   id: string;
@@ -72,16 +72,6 @@ export interface VehicleRequest {
   deviceType?: string | null;
 }
 
-export interface NotificationSettingsDto {
-  dangerEnabled: boolean;
-  cautionEnabled: boolean;
-  nightEnabled: boolean;
-}
-
-export type NotificationSettingsPatch = Partial<
-  Pick<NotificationSettingsDto, 'cautionEnabled' | 'nightEnabled'>
->;
-
 // ── 4. 주차 이벤트·판정
 
 export interface ParkingEventRequest {
@@ -99,6 +89,7 @@ export interface ParkingEventRequest {
 export type AssessmentStatus = 'SUCCEEDED' | 'PARTIAL' | 'FAILED';
 /** OK, SKIPPED, OUT_OF_AREA, NOT_TARGET, NO_ACTIVE_VERSION, MISSING_ROW 등 */
 export type PredictionStatus = string;
+/** 서버 응답 호환용이며 앱의 알림 표시·설정에는 사용하지 않는다. */
 export type NotifyDecision = 'SEND' | 'SUPPRESSED_SETTING' | 'SUPPRESSED_NIGHT' | 'NONE';
 
 export interface AssessmentReason {
@@ -202,11 +193,6 @@ export interface ParkingEventListItem {
 
 export interface ParkingEventListResponse {
   items: ParkingEventListItem[];
-}
-
-export interface DeliveryRequest {
-  deliveredAt: string | null;
-  failure: 'NO_PERMISSION' | 'DISPLAY_FAILED' | 'UNKNOWN' | null;
 }
 
 // ── 5. 주변 주차장·지도

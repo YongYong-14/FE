@@ -24,6 +24,7 @@ export type ApiErrorCode =
   | 'AUTO_CONFIRM_NOT_ALLOWED'
   | 'ADJUST_DISTANCE_EXCEEDED'
   // 앱 내부
+  | 'API_CONFIG_MISSING'
   | 'NETWORK_ERROR'
   | 'TIMEOUT'
   | 'INVALID_RESPONSE'
@@ -55,6 +56,7 @@ export function isAbortError(error: unknown): boolean {
 }
 
 const messages: Partial<Record<ApiErrorCode, string>> = {
+  API_CONFIG_MISSING: '서버 주소가 설정되지 않았어요. EXPO_PUBLIC_API_BASE_URL을 설정해 주세요.',
   NETWORK_ERROR: '서버에 연결하지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.',
   TIMEOUT: '서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.',
   INVALID_RESPONSE: '서버 응답을 읽지 못했어요. 잠시 후 다시 시도해 주세요.',

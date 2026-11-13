@@ -5,9 +5,6 @@ import { ApiError } from './errors';
 
 /** SDK 인증이 끝난 뒤에만 백엔드 로그인 API에 전달할 카카오 토큰을 반환한다. */
 export async function getKakaoLoginToken(): Promise<string> {
-  // 웹 목 서버 등 SDK 없이 API 계약을 확인하는 개발 경로를 유지한다.
-  if (__DEV__ && apiConfig.devKakaoAccessToken) return apiConfig.devKakaoAccessToken;
-
   if (Platform.OS !== 'android') throw new ApiError(0, 'KAKAO_SDK_UNAVAILABLE');
   if (!apiConfig.kakaoNativeAppKey) throw new ApiError(0, 'KAKAO_CONFIG_MISSING');
 
@@ -16,7 +13,7 @@ export async function getKakaoLoginToken(): Promise<string> {
 
   let accessToken: string;
   try {
-    // 데모·웹에서는 네이티브 모듈을 로드하지 않는다.
+    // Android에서만 네이티브 모듈을 로드한다.
     const { login } = await import('@react-native-seoul/kakao-login');
     const token = await login();
     accessToken = token.accessToken;

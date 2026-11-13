@@ -1,26 +1,23 @@
 import { apiRequest } from './client';
 import type {
   AgreementRequest,
-  DeliveryRequest,
   HealthResponse,
   KakaoLoginRequest,
   LatestResponse,
   LoginResponse,
   MeResponse,
-  NotificationSettingsDto,
-  NotificationSettingsPatch,
   ParkingEventDetailResponse,
   ParkingEventListResponse,
   ParkingEventRequest,
   ParkingEventResponse,
   ParkingLotsResponse,
   RiskZonesResponse,
-  TokenResponse,
   VehicleRequest,
   VehicleResponse,
 } from './types';
 
-// API 명세 v0.11의 엔드포인트와 1:1로 대응한다. 경로는 모두 /api/v1 아래다.
+// API 명세 v0.11 중 앱이 사용하는 엔드포인트다. 알림 설정·delivery 호출은 제외한다.
+// 경로는 모두 /api/v1 아래다.
 // POST /webhooks/kakao/unlink는 카카오 서버 전용이라 앱이 호출하지 않는다.
 // POST /auth/refresh는 client.ts가 토큰 만료 때 자동으로 호출한다(아래 함수는 수동 호출용).
 
@@ -29,14 +26,6 @@ import type {
 /** POST /auth/kakao — 카카오 로그인(가입 포함) */
 export const loginWithKakao = (body: KakaoLoginRequest) =>
   apiRequest<LoginResponse>('/auth/kakao', { method: 'POST', body, auth: false });
-
-/** POST /auth/refresh — 토큰 재발급(회전) */
-export const refreshAuth = (refreshToken: string) =>
-  apiRequest<TokenResponse>('/auth/refresh', {
-    method: 'POST',
-    body: { refreshToken },
-    auth: false,
-  });
 
 /** POST /auth/logout — 제출한 리프레시 토큰의 계열 폐기(204) */
 export const logout = (refreshToken: string) =>
@@ -52,7 +41,7 @@ export const recordAgreement = (body: AgreementRequest) =>
 /** DELETE /me — 회원 탈퇴(204) */
 export const deleteMe = () => apiRequest<void>('/me', { method: 'DELETE' });
 
-// ── 3. 차량·알림 설정
+// ── 3. 차량
 
 /** GET /vehicle — 내 차량 조회 */
 export const getVehicle = () => apiRequest<VehicleResponse>('/vehicle');
@@ -60,14 +49,6 @@ export const getVehicle = () => apiRequest<VehicleResponse>('/vehicle');
 /** PUT /vehicle — 차량 등록·변경 */
 export const putVehicle = (body: VehicleRequest) =>
   apiRequest<VehicleResponse>('/vehicle', { method: 'PUT', body });
-
-/** GET /notification-settings — 알림 설정 조회 */
-export const getNotificationSettings = () =>
-  apiRequest<NotificationSettingsDto>('/notification-settings');
-
-/** PATCH /notification-settings — 보낸 필드만 변경 */
-export const patchNotificationSettings = (body: NotificationSettingsPatch) =>
-  apiRequest<NotificationSettingsDto>('/notification-settings', { method: 'PATCH', body });
 
 // ── 4. 주차 이벤트·판정
 
@@ -87,13 +68,6 @@ export const listParkingEvents = (options: { level?: 'ALL' | 1 | 2; limit?: numb
 /** GET /parking-events/{id} — 판정 상세 */
 export const getParkingEvent = (id: string) =>
   apiRequest<ParkingEventDetailResponse>(`/parking-events/${encodeURIComponent(id)}`);
-
-/** PATCH /parking-events/{id}/delivery — 알림 표시 결과 보고(204) */
-export const reportParkingEventDelivery = (id: string, body: DeliveryRequest) =>
-  apiRequest<void>(`/parking-events/${encodeURIComponent(id)}/delivery`, {
-    method: 'PATCH',
-    body,
-  });
 
 // ── 5. 주변 주차장·지도
 

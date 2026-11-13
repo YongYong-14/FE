@@ -1,4 +1,4 @@
-import type { Coordinate, SelectedPlace } from './location';
+import type { Coordinate } from './location';
 import type { DataPeriod } from './map';
 
 // 프론트 내부 연결용 자료형이다. 서버 응답은 services/api에서 이 형태로 바꾼다.
@@ -56,6 +56,9 @@ export interface ReportStat {
 export interface ReportChart {
   title: string;
   caption: string;
+  /** 아이콘과 함께 나누어 표시한다. 이전 저장 기록은 caption에서 복원한다. */
+  weekdayLabel?: string;
+  periodLabel?: string;
   /** 0~1 상대 높이. 3시간 단위 8칸. */
   bars: number[];
   peakIndex: number;
@@ -64,7 +67,9 @@ export interface ReportChart {
 
 export interface AnalysisReport {
   status: AnalysisStatus;
-  /** 배지 문구. 예: "1단계 · 소화전 주변" */
+  /** 사용자 횡단보도 응답으로 적용한 1단계는 서버 실측 판정과 구분한다. */
+  source?: 'server' | 'user-crosswalk';
+  /** 배지 문구. 예: "1단계 소화전 주변" */
   badge: string;
   headline: string;
   summary?: string;
@@ -77,7 +82,6 @@ export interface AnalysisReport {
   zoneLabel?: string;
   /** 결과 화면 하단의 추가 안내(과태료 단서 등). */
   notes?: string[];
-  isExampleData: boolean;
 }
 
 /** 기록의 위치. 서버 목록에서만 받은 기록은 좌표가 없을 수 있다. */
@@ -89,16 +93,6 @@ export interface RecordPlace {
   isSupportedRegion: boolean;
 }
 
-/** 앱이 직접 띄우는 위험 알림 내용. 문구는 앱이 정한다. */
-export interface ParkingAlert {
-  recordId: string;
-  level: 1 | 2;
-  title: string;
-  body: string;
-  /** 이 시각이 지나면 표시하지 않는다. */
-  expiresAt: string;
-}
-
 export interface ParkingRecord {
   id: string;
   parkedAt: string;
@@ -107,10 +101,12 @@ export interface ParkingRecord {
   crosswalkAnswer: CrosswalkAnswer | null;
   status: AnalysisStatus;
   report: AnalysisReport;
+  /** 직접 응답으로 리포트를 보정하기 전 서버 결과. API 전송값에는 포함하지 않는다. */
+  serverReport?: AnalysisReport;
   updatedAt: string;
   /** 같은 주차를 다시 판정할 때 그대로 보내는 원래 제출값. */
   submission?: ParkingSubmission;
-  /** 다시 분석할 수 있는지. 없으면 상태로 판단한다(데모 기록). */
+  /** 다시 분석할 수 있는지. 없으면 상태로 판단한다. */
   retryable?: boolean;
   /** 서버 상세(GET /parking-events/{id})로 리포트를 채웠는지. */
   detailed?: boolean;
@@ -125,20 +121,17 @@ export interface LatestParking {
   dataPeriod: DataPeriod | null;
 }
 
-/** 기존 호출부 호환용 요약 자료형. */
-export type ParkingRecordSummary = Pick<
-  ParkingRecord,
-  'id' | 'parkedAt' | 'place' | 'crosswalkAnswer' | 'status'
->;
+/** 3단계 결과의 공통 표시 문구. 저장된 이전 리포트에도 적용한다. */
+export const noRiskFoundCopy = {
+  badge: '위험 정보 없음',
+  headline: '위험 정보가 없어요',
+  summary: '이 위치에서 주차 금지 시설 근접이나 신고 집중 위험이 확인되지 않았어요.',
+} as const;
 
 export const analysisStatusLabel: Record<AnalysisStatus, string> = {
   'level-1': '1단계',
   'level-2': '2단계',
-  'no-risk-found': '알림 대상 아님',
+  'no-risk-found': noRiskFoundCopy.badge,
   'insufficient-data': '판단 불가',
   failed: '분석 실패',
 };
-
-export function toRecordPlace(place: SelectedPlace): RecordPlace {
-  return { ...place };
-}

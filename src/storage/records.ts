@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import type { ParkingRecord } from '@/shared/types/parking';
+import { noRiskFoundCopy, type ParkingRecord } from '@/shared/types/parking';
 
 import { storageGeneration, storageKeys } from './keys';
+import { withCrosswalkDecision } from '@/shared/utils/crosswalk';
 
 // 주차 기록 저장 모듈(최소 구현).
 // 기록 화면 담당(팀원2)이 필터·조회를 확장할 수 있도록 공개 함수만 제공한다.
@@ -15,7 +16,8 @@ function isRecord(value: unknown): value is ParkingRecord {
     typeof item.parkedAt === 'string' &&
     typeof item.status === 'string' &&
     typeof item.place === 'object' &&
-    typeof item.report === 'object'
+    typeof item.report === 'object' &&
+    item.report !== null
   );
 }
 
@@ -24,7 +26,19 @@ export async function listRecords(): Promise<ParkingRecord[]> {
   if (raw === null) return [];
   const value: unknown = JSON.parse(raw);
   if (!Array.isArray(value)) throw new Error('기록을 읽지 못했어요.');
-  return value.filter(isRecord).sort((a, b) => Date.parse(b.parkedAt) - Date.parse(a.parkedAt));
+  return (
+    value
+      .filter(isRecord)
+      .filter((item) => !('isExampleData' in item.report && item.report.isExampleData === true))
+      .map(withCrosswalkDecision)
+      // 이전에 저장한 기록도 화면에서 같은 최신 문구를 쓴다.
+      .map((record) =>
+        record.report.status === 'no-risk-found'
+          ? { ...record, report: { ...record.report, ...noRiskFoundCopy } }
+          : record,
+      )
+      .sort((a, b) => Date.parse(b.parkedAt) - Date.parse(a.parkedAt))
+  );
 }
 
 let queue: Promise<unknown> = Promise.resolve();
@@ -54,6 +68,7 @@ export function upsertRecord(
   shouldWrite?: () => boolean,
 ): Promise<ParkingRecord[] | null> {
   return update((current) => {
+    record = withCrosswalkDecision(record);
     const existing = current.find((item) => item.id === record.id);
     return existing
       ? current.map((item) =>

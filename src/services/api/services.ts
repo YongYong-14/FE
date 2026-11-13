@@ -1,12 +1,11 @@
 import { Platform } from 'react-native';
 
-import { demoGpsPlace } from '../fixtures/places';
+import { YONGIN_MAP_CENTER } from '@/shared/map/constants';
 import { currentDeviceCoordinate } from '../device/location';
 import type {
   AccountService,
   AnalysisService,
   MapService,
-  NotificationSettingsService,
   ParkingLotService,
   RecordService,
   SystemService,
@@ -18,7 +17,6 @@ import * as endpoints from './endpoints';
 import { ApiError, isAbortError, isApiError } from './errors';
 import { getKakaoLoginToken } from './kakao';
 import {
-  buildAlert,
   buildReport,
   deviceTypeOf,
   missingAgreementsFrom,
@@ -140,11 +138,6 @@ export const apiVehicleService: VehicleService = {
   },
 };
 
-export const apiNotificationSettingsService: NotificationSettingsService = {
-  get: () => endpoints.getNotificationSettings(),
-  update: (patch) => endpoints.patchNotificationSettings(patch),
-};
-
 export const apiAnalysisService: AnalysisService = {
   async analyze(input, signal) {
     const body = toParkingEventRequest(input.submission);
@@ -168,22 +161,7 @@ export const apiAnalysisService: AnalysisService = {
       report,
       address: response.address,
       retryable: retryableOf(assessment),
-      alert: buildAlert(response.parkingEventId, assessment, report),
     };
-  },
-
-  async reportDelivery(recordId, result) {
-    try {
-      await endpoints.reportParkingEventDelivery(
-        recordId,
-        'deliveredAt' in result
-          ? { deliveredAt: result.deliveredAt, failure: null }
-          : { deliveredAt: null, failure: result.failure },
-      );
-    } catch (error) {
-      // 알림 대상이 아닌 이벤트면 무시한다(명세 6절).
-      if (!isApiError(error, 'DELIVERY_NOT_EXPECTED')) throw error;
-    }
   },
 };
 
@@ -218,7 +196,7 @@ export const apiRecordService: RecordService = {
 
 export const apiMapService: MapService = {
   // 아직 GPS가 없으면 지도 시작 중심만 용인시로 둔다. 실제 현재 위치 표시는 GPS 조회 후 한다.
-  currentLocation: () => currentDeviceCoordinate() ?? demoGpsPlace.coordinate,
+  currentLocation: () => currentDeviceCoordinate() ?? YONGIN_MAP_CENTER,
   async riskZones(bounds, at) {
     return toRiskZoneData(await endpoints.getRiskZones({ ...bounds, at }));
   },
@@ -236,7 +214,6 @@ export const apiParkingLotService: ParkingLotService = {
       radiusMeters: response.radiusM,
       expanded: response.expanded,
       lots: response.items.map((item) => toParkingLot(item, now)),
-      isExampleData: false,
     };
   },
 };

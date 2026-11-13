@@ -25,7 +25,7 @@ export interface PairedDevice {
 }
 
 export interface RegisteredVehicle {
-  /** 서버 차량 id(API 연결 시 UUID). 데모에서는 기기 id다. */
+  /** 서버 차량 id(UUID). */
   id: string;
   name: string;
   /** 이전 버전 저장값에는 없을 수 있다. */
@@ -33,11 +33,11 @@ export interface RegisteredVehicle {
   kind?: DeviceKind;
 }
 
-/** 데모 권한 상태. 실제 OS 권한과 구분한다. */
+/** 기기에서 확인한 권한·연결 상태. */
 export type LocationPermission = 'unset' | 'denied' | 'foreground' | 'always';
 export type BluetoothPermission = 'unset' | 'denied' | 'granted';
 
-export interface DemoDeviceState {
+export interface DeviceState {
   locationPermission: LocationPermission;
   bluetoothPermission: BluetoothPermission;
   bluetoothEnabled: boolean;
@@ -52,21 +52,23 @@ export interface SessionSnapshot {
   user: SessionUser | null;
   vehicle: RegisteredVehicle | null;
   onboardingCompleted: boolean;
+  /** 개발 중 화면 확인용. 실제 차량·서버 등록과 구분한다. */
+  vehicleRegistrationMocked?: boolean;
   surveyEnabled: boolean;
-  device: DemoDeviceState;
+  device: DeviceState;
   /** 아직 동의하지 않은 필수 약관. 이전 버전 저장값에는 없다. */
   missingAgreements?: AgreementType[];
   /** 기기에 남은 차량·기록의 주인. 다른 계정으로 로그인하면 비운다. */
   ownerId?: string | null;
 }
 
-export function createInitialDevice(): DemoDeviceState {
+export function createInitialDevice(): DeviceState {
   return {
     locationPermission: 'unset',
     bluetoothPermission: 'unset',
-    bluetoothEnabled: true,
-    vehicleConnected: true,
-    vehicleConnectionKnown: true,
+    bluetoothEnabled: false,
+    vehicleConnected: false,
+    vehicleConnectionKnown: false,
   };
 }
 
@@ -76,6 +78,7 @@ export function createInitialSession(): SessionSnapshot {
     user: null,
     vehicle: null,
     onboardingCompleted: false,
+    vehicleRegistrationMocked: false,
     surveyEnabled: true,
     device: createInitialDevice(),
     missingAgreements: [],
@@ -83,11 +86,20 @@ export function createInitialSession(): SessionSnapshot {
   };
 }
 
-/** 주차 감지에 필요한 데모 권한이 모두 갖춰졌는지. */
-export function hasDetectionPermissions(device: DemoDeviceState): boolean {
+/** 주차 감지에 필요한 권한이 모두 갖춰졌는지. */
+export function hasDetectionPermissions(device: DeviceState): boolean {
   return device.locationPermission === 'always' && device.bluetoothPermission === 'granted';
 }
 
 export function missingAgreementsOf(snapshot: SessionSnapshot): AgreementType[] {
   return snapshot.missingAgreements ?? [];
+}
+
+export function usesMockVehicleRegistration(snapshot: SessionSnapshot): boolean {
+  return __DEV__ && snapshot.vehicleRegistrationMocked === true && !snapshot.vehicle;
+}
+
+/** 실제 등록 또는 개발용 건너뛰기를 완료했는지. */
+export function hasVehicleEntryAccess(snapshot: SessionSnapshot): boolean {
+  return Boolean(snapshot.vehicle) || usesMockVehicleRegistration(snapshot);
 }
