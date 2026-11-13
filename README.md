@@ -1,6 +1,6 @@
 # 세울까말까 — Android 프론트엔드
 
-용인시 주차 위험 확인 서비스의 React Native·TypeScript·Expo 프로젝트다. 기획 문서의 전체 화면·기능을 Figma 기준 프론트엔드 데모로 구현했다. 실제 API·카카오·지도 SDK·GPS·블루투스·OS 권한 연동은 후속 범위다.
+용인시 주차 위험 확인 서비스의 React Native·TypeScript·Expo Android 앱이다. 실제 카카오 로그인, 서버 API, 블루투스 연결 감지, GPS와 시스템 권한을 사용한다. 모의 로그인·기기·위치·분석 데이터 및 데모 메뉴는 제공하지 않는다.
 
 ## 개발 환경
 
@@ -15,7 +15,7 @@
 
 ## 설치와 실행
 
-저장소 루트에서 실행한다. 필수 환경 변수와 서버·카카오·지도 키는 없다.
+`FE/`에서 실행한다. `.env.example`을 복사한 `.env`에 서버 주소와 프로젝트의 카카오 네이티브 앱 키를 설정한다.
 
 ```bash
 nvm install
@@ -41,29 +41,30 @@ npm run android:device
 
 개발 빌드는 에뮬레이터·실기기마다 각각 설치해야 한다. `No development build`가 나오면 해당 기기를 선택해 `npm run android:device`를 실행한다. API 37 에뮬레이터도 개발용으로 사용할 수 있다. API 35를 기본 검증 환경으로 둔 이유는 Flip3의 Android 15와 맞추기 위해서이며, 두 환경을 함께 확인한다.
 
-현재 흐름은 데모 로그인 → 권한 안내 → 차량 1개 등록 → 5탭(홈·지도·주변 주차장·기록·마이페이지)이며, 등록 차량 연결 해제 → 위치 확인(15초) → 횡단보도 응답 → 분석 → 리포트·기록까지 동작한다. 시연은 **마이페이지 → 데모 설정**에서 D01~D10 시나리오를 준비해 실제 이용 화면으로 확인한다. 실제 인증·기기 권한·지도·분석 API는 연결하지 않는다.
+최초 진입은 카카오 로그인 → 미동의 필수 약관 → 권한 안내 → 차량 1개 등록 → 홈이다. 권한 안내를 건너뛰어도 차량 등록은 필수다. 등록 기기가 실제 연결 해제되면 위치 확인(15초) → 횡단보도 응답 → 서버 분석 → 리포트·기록으로 이어진다.
 
-## 서버 API 연결과 웹 실행
-
-`EXPO_PUBLIC_API_BASE_URL`을 비우면 데모 응답으로, 채우면 API 명세 v0.11의 서버 API로 실행한다. 값은 `.env.example`을 참고해 `.env`에 둔다. 엔드포인트별 연결 지점과 남은 기기·SDK 작업은 [API 연동 현황](mdfiles/03_API_연동_대기.md)에 정리했다.
+## 서버와 기기 설정
 
 ```bash
-# 웹(데모 모드 또는 .env의 서버 주소)
-npm run web
-
-# 명세대로 동작하는 로컬 목 API 서버(4000)와 웹을 함께 실행
-npm run web:mock
-
-# 목 서버만 실행 / 목 서버 계약 검사(임시 서버를 띄워 281개 항목 확인)
-npm run mock:api
-npm run test:api
+cp .env.example .env
+# .env에 EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY 입력
+# 상호·건물명·주소 검색은 EXPO_PUBLIC_KAKAO_REST_API_KEY도 입력
+npm run prebuild:android
+npm run android:device
 ```
 
-카카오 SDK 연결 전에는 `EXPO_PUBLIC_KAKAO_ACCESS_TOKEN`의 개발용 토큰으로 로그인한다. 목 서버는 `mock-kakao-<아무값>`을 받는다.
+`EXPO_PUBLIC_API_BASE_URL`은 필수다. `/api/v1`은 없을 때만 붙인다. 비워 두면 설정 오류가 표시된다. 수동 카카오 액세스 토큰을 넣는 우회 경로는 제거했다. 카카오디벨로퍼스에는 패키지명 `com.yongyong14.seulkkamalkka`와 빌드에 쓰는 서명 키 해시를 등록한다.
+
+웹(`npm run web`)에는 Android 전용 카카오 인증·블루투스·주소 검색을 대신하는 가짜 동작이 없다. 실제 기능 검증은 Android 앱에서 한다. 웹에서 서버 요청을 테스트하려면 서버의 CORS 설정도 필요하다.
+
+현재 화면·데이터 경계와 Figma 기준은 [온보딩과 실서비스 전환](mdfiles/12_온보딩과_실서비스_전환.md)을 따른다.
 
 ## 공통 검사 명령
 
 ```bash
+npm run test:device     # 기기 서비스·저장 상태 회귀 검사
+npm run test:places     # 카카오 장소 검색 회귀 검사
+npm run test:parking-reports # 횡단보도 응답·리포트·기록 병합 회귀 검사
 npm run check           # 타입·린트·포맷 검사
 npm run format          # 포맷 적용
 npm run lint:fix        # 자동 수정 가능한 린트 반영
