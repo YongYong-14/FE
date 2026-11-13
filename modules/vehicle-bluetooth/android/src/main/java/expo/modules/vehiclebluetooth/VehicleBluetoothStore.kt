@@ -55,6 +55,12 @@ internal object VehicleBluetoothStore {
     if (event?.optString("id") == id) prefs.edit().remove("pending").commit()
   }
 
+  /** 아직 앱이 처리하지 않은 연결 해제 이벤트가 있는지. */
+  fun pendingDisconnect(context: Context): Boolean {
+    val event = context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("pending", null)?.let { JSONObject(it) }
+    return event != null && !event.optBoolean("connected", true)
+  }
+
   @Synchronized
   fun saveParkingFix(context: Context, address: String, detectedAt: Long, location: android.location.Location) {
     val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)

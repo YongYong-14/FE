@@ -1,41 +1,25 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { AppState, Pressable, StyleSheet, View } from 'react-native';
 
+import { isNativeDeviceMode, nativeBluetooth } from '@/services/device/bluetooth';
+import {
+  locationPermission,
+  requestBackgroundLocationPermission,
+  requestLocationPermission,
+} from '@/services/device/location';
 import { AppModal } from '@/shared/components/AppModal';
 import { AppText } from '@/shared/components/AppText';
 import { Badge, type BadgeTone } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
-import { Icon, type IconName } from '@/shared/components/Icon';
 import { IconButton } from '@/shared/components/IconButton';
+import type { IconName } from '@/shared/components/Icon';
+import { Notice } from '@/shared/components/Notice';
 import { Screen } from '@/shared/components/Screen';
 import { IconTile } from '@/shared/components/Surface';
 import { useAsyncAction } from '@/shared/hooks/useAsyncAction';
 import { colors, radii, spacing } from '@/shared/theme/tokens';
-import type {
-  BluetoothPermission,
-  DemoDeviceState,
-  LocationPermission,
-} from '@/shared/types/session';
-
 import { useSession } from '../state/SessionProvider';
-import { isNativeDeviceMode } from '@/services/device/bluetooth';
-import { NativePermissionGuideScreen } from './NativePermissionGuideScreen';
-
-type Step = 'location' | 'location-always' | 'bluetooth' | 'battery' | null;
-
-const locationStatus: Record<LocationPermission, { label: string; tone: BadgeTone }> = {
-  unset: { label: '필수', tone: 'neutral' },
-  denied: { label: '거부됨', tone: 'danger' },
-  foreground: { label: '사용 중에만', tone: 'warning' },
-  always: { label: '항상 허용', tone: 'success' },
-};
-
-const bluetoothStatus: Record<BluetoothPermission, { label: string; tone: BadgeTone }> = {
-  unset: { label: '필수', tone: 'neutral' },
-  denied: { label: '거부됨', tone: 'danger' },
-  granted: { label: '허용됨', tone: 'success' },
-};
 
 function PermissionCard({
   icon,
@@ -43,20 +27,26 @@ function PermissionCard({
   title,
   description,
   status,
+  onPress,
+  disabled,
 }: {
   icon: IconName;
   tint: string;
   title: string;
   description: string;
   status: { label: string; tone: BadgeTone };
+  onPress: () => void;
+  disabled: boolean;
 }) {
   return (
-    <View
+    <Pressable
       style={styles.card}
-      accessible
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
       accessibilityLabel={`${title}, ${status.label}. ${description}`}
     >
-      <IconTile name={icon} background={tint} />
+      <IconTile name={icon} size={48} background={tint} />
       <View style={styles.cardTexts}>
         <View style={styles.cardHead}>
           <AppText variant="label" weight="bold">
@@ -68,131 +58,94 @@ function PermissionCard({
           {description}
         </AppText>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
-function DemoDialog({
-  visible,
-  icon,
-  guide,
-  question,
-  options,
-}: {
-  visible: boolean;
-  icon: IconName;
-  guide?: string;
-  question: string;
-  options: { label: string; onPress: () => void; recommended?: boolean }[];
-}) {
-  return (
-    <AppModal visible={visible}>
-      {guide ? (
-        <View style={styles.guide}>
-          <AppText variant="caption" weight="bold" tone="inverse" style={styles.center}>
-            {guide}
-          </AppText>
-        </View>
-      ) : null}
-      <View style={styles.dialogHead}>
-        <Icon name={icon} color={colors.primary} size="lg" />
-        <AppText variant="body" style={styles.center}>
-          {question}
-        </AppText>
-        <AppText variant="micro" tone="secondary" style={styles.center}>
-          [데모] 실제 Android 권한 창이 아니에요
-        </AppText>
-      </View>
-      <View style={styles.dialogActions}>
-        {options.map((option) => (
-          <Button
-            key={option.label}
-            label={option.label}
-            variant={option.recommended ? 'primary' : 'neutral'}
-            size="md"
-            onPress={option.onPress}
-          />
-        ))}
-      </View>
-    </AppModal>
-  );
-}
-
-/**
- * 권한 안내·온보딩. 허용·거부·설정 복귀는 데모 권한 상태로만 기록하며 실제 OS 팝업을 띄우지 않는다.
- * mode="settings"는 홈의 권한 부족 안내에서 다시 들어온 경우다.
- */
+/** 로그인 후 실제 OS 권한을 요청하고, 설정 복귀 시 상태를 다시 읽는다. */
 export function PermissionGuideScreen({
   mode = 'onboarding',
 }: {
   mode?: 'onboarding' | 'settings';
 }) {
-  return isNativeDeviceMode ? (
-    <NativePermissionGuideScreen mode={mode} />
-  ) : (
-    <DemoPermissionGuideScreen mode={mode} />
-  );
-}
-
-function DemoPermissionGuideScreen({ mode = 'onboarding' }: { mode?: 'onboarding' | 'settings' }) {
   const router = useRouter();
-  const { snapshot, completeOnboarding, updateDevice, isSaving } = useSession();
-  const { run, isRunning, error } = useAsyncAction();
-  const [step, setStep] = useState<Step>(null);
-  const [draft, setDraft] = useState<
-    Pick<DemoDeviceState, 'locationPermission' | 'bluetoothPermission'>
-  >({
-    locationPermission: snapshot.device.locationPermission,
-    bluetoothPermission: snapshot.device.bluetoothPermission,
-  });
-
-  function finish(next = draft) {
-    setStep(null);
-    void run(async () => {
-      if (mode === 'onboarding') {
-        await completeOnboarding(next);
-      } else {
-        await updateDevice(next);
-        router.back();
-      }
-    });
-  }
-
-  function setLocation(locationPermission: LocationPermission, nextStep: Step) {
-    setDraft((previous) => ({ ...previous, locationPermission }));
-    setStep(nextStep);
-  }
-
-  function setBluetooth(bluetoothPermission: BluetoothPermission) {
-    setDraft((previous) => ({ ...previous, bluetoothPermission }));
-    setStep('battery');
-  }
-
+  const { snapshot, updateDevice, completeOnboarding, isSaving } = useSession();
+  const [backgroundGuide, setBackgroundGuide] = useState(false);
+  const [notification, setNotification] = useState<'denied' | 'granted'>('denied');
+  const { run, isRunning, error } = useAsyncAction((cause) =>
+    cause instanceof Error ? cause.message : '권한 설정을 확인해 주세요.',
+  );
   const busy = isRunning || isSaving;
+  const sync = useCallback(async () => {
+    const [location, bluetooth, notifications] = await Promise.all([
+      locationPermission(),
+      nativeBluetooth.permission(),
+      nativeBluetooth.notificationPermission(),
+    ]);
+    await updateDevice({ locationPermission: location, bluetoothPermission: bluetooth });
+    return { location, bluetooth, notifications };
+  }, [updateDevice]);
+  useEffect(() => {
+    if (!isNativeDeviceMode) return;
+    const refresh = () =>
+      void sync().then(
+        (result) => setNotification(result.notifications),
+        () => undefined,
+      );
+    refresh();
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refresh();
+    });
+    return () => listener.remove();
+  }, [sync]);
+  const finish = async () => {
+    if (isNativeDeviceMode) await sync();
+    if (mode === 'onboarding') await completeOnboarding();
+    else router.back();
+  };
+  const request = async () => {
+    if (!isNativeDeviceMode)
+      throw new Error('권한 설정과 차량 등록은 Android 앱에서 이용해 주세요.');
+    const foreground = await requestLocationPermission();
+    const bluetooth = await nativeBluetooth.requestPermission();
+    // 알림은 선택 권한이라 거절해도 다음 단계로 넘어간다.
+    await nativeBluetooth.requestNotificationPermission().catch(() => 'denied' as const);
+    const result = await sync();
+    setNotification(result.notifications);
+    if (!foreground.granted || bluetooth !== 'granted') {
+      throw new Error(
+        '허용하지 않은 권한이 있어요. 권한 카드를 눌러 앱 설정에서 변경할 수 있어요.',
+      );
+    }
+    if (result.location !== 'always') setBackgroundGuide(true);
+    else await finish();
+  };
+  const device = snapshot.device;
+  const locationStatus: { label: string; tone: BadgeTone } =
+    device.locationPermission === 'always'
+      ? { label: '허용됨', tone: 'success' }
+      : device.locationPermission === 'foreground'
+        ? { label: '사용 중에만', tone: 'warning' }
+        : { label: '필수', tone: 'neutral' };
 
   return (
     <Screen
       background={colors.surface}
       contentStyle={styles.content}
+      footerStyle={styles.footer}
       footer={
         <>
-          {error ? (
-            <AppText
-              variant="caption"
-              tone="danger"
-              accessibilityRole="alert"
-              style={styles.center}
-            >
-              {error}
-            </AppText>
-          ) : null}
-          <Button label="권한 허용하기" onPress={() => setStep('location')} loading={busy} />
+          {error ? <Notice title="권한 설정을 확인해 주세요" description={error} /> : null}
           <Button
-            label={mode === 'onboarding' ? '나중에 설정' : '닫기'}
+            label={mode === 'onboarding' ? '권한 허용하기' : '권한 설정하기'}
+            loading={busy}
+            onPress={() => void run(request)}
+          />
+          <Button
+            label={mode === 'onboarding' ? '나중에 설정' : '완료'}
             variant="ghost"
-            size="md"
-            onPress={() => (mode === 'onboarding' ? finish() : router.back())}
             disabled={busy}
+            onPress={() => void run(finish)}
           />
         </>
       }
@@ -202,29 +155,54 @@ function DemoPermissionGuideScreen({ mode = 'onboarding' }: { mode?: 'onboarding
           <IconButton name="chevron-back" label="뒤로 가기" onPress={() => router.back()} />
         </View>
       ) : null}
-      <View style={styles.header}>
-        <AppText variant="title" weight="black" accessibilityRole="header">
-          주차를 감지하려면{'\n'}권한이 필요해요
-        </AppText>
-        <AppText variant="caption" tone="secondary">
-          앱을 닫아도 감지하려면 위치 권한을 ‘항상 허용’으로 설정해야 해요. 이번 데모에서는 실제
-          권한을 요청하지 않아요.
-        </AppText>
-      </View>
+      <AppText variant="title" weight="black" accessibilityRole="header">
+        주차를 감지하려면{'\n'}권한이 필요해요
+      </AppText>
+      <AppText variant="caption" tone="secondary">
+        앱을 닫아도 감지하려면 위치 권한을 ‘항상 허용’으로 설정해야 해요.
+      </AppText>
       <View style={styles.list}>
         <PermissionCard
           icon="location-outline"
           tint={colors.primary}
-          title="위치 · 항상 허용"
+          title="위치 항상 허용"
           description="앱을 닫았을 때도 주차 위치를 확인해요"
-          status={locationStatus[draft.locationPermission]}
+          status={locationStatus}
+          disabled={busy}
+          onPress={() => void run(nativeBluetooth.openAppSettings)}
         />
         <PermissionCard
           icon="bluetooth"
           tint={colors.bluetooth}
           title="블루투스"
           description="차량과 연결이 끊기는 순간을 알아채요"
-          status={bluetoothStatus[draft.bluetoothPermission]}
+          status={
+            device.bluetoothPermission === 'granted'
+              ? { label: '허용됨', tone: 'success' }
+              : { label: '필수', tone: 'neutral' }
+          }
+          disabled={busy}
+          onPress={() => void run(nativeBluetooth.openAppSettings)}
+        />
+        <PermissionCard
+          icon="notifications-outline"
+          tint={colors.warning}
+          title="알림"
+          description="앱을 닫았을 때 주차를 감지하면 위치 확인을 알려요"
+          status={
+            notification === 'granted'
+              ? { label: '허용됨', tone: 'success' }
+              : { label: '선택', tone: 'neutral' }
+          }
+          disabled={busy}
+          onPress={() =>
+            void run(async () => {
+              // 이미 거절해 시스템 창이 다시 뜨지 않으면 앱 설정에서 바꾼다.
+              if ((await nativeBluetooth.requestNotificationPermission()) !== 'granted')
+                await nativeBluetooth.openAppSettings();
+              setNotification((await sync()).notifications);
+            })
+          }
         />
         <PermissionCard
           icon="battery-charging-outline"
@@ -232,83 +210,56 @@ function DemoPermissionGuideScreen({ mode = 'onboarding' }: { mode?: 'onboarding
           title="배터리 최적화 예외"
           description="백그라운드 감지가 꺼지지 않게 해요"
           status={{ label: '선택', tone: 'neutral' }}
+          disabled={busy}
+          onPress={() => void run(nativeBluetooth.openBatterySettings)}
         />
       </View>
-
-      <DemoDialog
-        visible={step === 'location'}
-        icon="location-outline"
-        guide="먼저 ‘앱 사용 중에만 허용’을 눌러 주세요"
-        question="‘세울까말까’에서 이 기기의 위치 정보에 액세스하도록 허용하시겠습니까?"
-        options={[
-          {
-            label: '앱 사용 중에만 허용',
-            recommended: true,
-            onPress: () => setLocation('foreground', 'location-always'),
-          },
-          { label: '이번만 허용', onPress: () => setLocation('foreground', 'location-always') },
-          { label: '허용 안 함', onPress: () => setLocation('denied', 'bluetooth') },
-        ]}
-      />
-      <DemoDialog
-        visible={step === 'location-always'}
-        icon="settings-outline"
-        guide="설정에서 ‘항상 허용’을 선택해 주세요"
-        question="위치 권한 설정 화면이에요. 앱을 닫아도 주차를 감지하려면 ‘항상 허용’이 필요해요."
-        options={[
-          {
-            label: '항상 허용',
-            recommended: true,
-            onPress: () => setLocation('always', 'bluetooth'),
-          },
-          { label: '앱 사용 중에만 허용', onPress: () => setLocation('foreground', 'bluetooth') },
-        ]}
-      />
-      <DemoDialog
-        visible={step === 'bluetooth'}
-        icon="bluetooth"
-        question="‘세울까말까’에서 근처 기기를 찾고 연결하도록 허용하시겠습니까?"
-        options={[
-          { label: '허용', recommended: true, onPress: () => setBluetooth('granted') },
-          { label: '허용 안 함', onPress: () => setBluetooth('denied') },
-        ]}
-      />
-      <DemoDialog
-        visible={step === 'battery'}
-        icon="battery-charging-outline"
-        question="배터리 최적화에서 ‘세울까말까’를 제외할까요? 설정하지 않아도 이용할 수 있어요."
-        options={[
-          { label: '설정하고 계속', recommended: true, onPress: () => finish() },
-          { label: '건너뛰기', onPress: () => finish() },
-        ]}
-      />
+      <AppModal visible={backgroundGuide} onBackPress={() => setBackgroundGuide(false)}>
+        <AppText variant="subtitle" weight="bold">
+          위치 권한을 항상 허용해 주세요
+        </AppText>
+        <AppText variant="body" tone="body">
+          다른 앱을 사용하거나 화면을 끈 동안에도 주차 위치를 확인하려면 다음 설정에서 ‘항상 허용’을
+          선택해 주세요.
+        </AppText>
+        <Button
+          label="설정으로 이동"
+          loading={busy}
+          onPress={() =>
+            void run(async () => {
+              await requestBackgroundLocationPermission();
+              setBackgroundGuide(false);
+              await finish();
+            })
+          }
+        />
+        <Button
+          label="앱 사용 중에만 이용"
+          variant="ghost"
+          disabled={busy}
+          onPress={() => {
+            setBackgroundGuide(false);
+            void run(finish);
+          }}
+        />
+      </AppModal>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { paddingTop: spacing.xxxl + spacing.lg, gap: spacing.xl + 2 },
+  content: { paddingTop: 48, gap: spacing.xxl },
+  footer: { gap: spacing.sm },
   nav: { marginTop: -spacing.xxxl, marginLeft: -spacing.md },
-  header: { gap: spacing.sm },
-  list: { gap: spacing.sm + 2 },
+  list: { gap: spacing.xxl, marginRight: spacing.xxl },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md + 1,
-    padding: 15,
+    gap: spacing.md,
+    padding: spacing.lg,
     borderRadius: radii.md,
     backgroundColor: colors.surfaceMuted,
   },
-  cardTexts: { flex: 1, gap: 3 },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs + 2, flexWrap: 'wrap' },
-  center: { textAlign: 'center' },
-  guide: {
-    alignSelf: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.pill,
-    backgroundColor: colors.ink,
-  },
-  dialogHead: { alignItems: 'center', gap: spacing.sm },
-  dialogActions: { gap: spacing.sm },
+  cardTexts: { flex: 1, gap: spacing.xs },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
 });

@@ -41,10 +41,17 @@ class VehicleBluetoothModule : Module() {
       }.sortedBy { it["name"] }
     }
 
-    AsyncFunction("track") { address: String?, key: String? -> VehicleBluetoothStore.track(context, address, key) }
+    AsyncFunction("track") { address: String?, key: String? ->
+      // 추적 대상이 없어지면(로그아웃·차량 해제) 남은 알림도 지운다.
+      if (address == null) VehicleBluetoothNotifier.cancel(context)
+      VehicleBluetoothStore.track(context, address, key)
+    }
     AsyncFunction("getSnapshot") { VehicleBluetoothStore.snapshot(context) }
     AsyncFunction("getParkingFix") { at: Double -> VehicleBluetoothStore.parkingFix(context, at.toLong()) }
-    AsyncFunction("acknowledge") { id: String -> VehicleBluetoothStore.acknowledge(context, id) }
+    AsyncFunction("acknowledge") { id: String ->
+      VehicleBluetoothStore.acknowledge(context, id)
+      VehicleBluetoothNotifier.cancel(context)
+    }
     AsyncFunction("refreshConnection") { promise: Promise -> refreshConnection(promise) }
     AsyncFunction("openBluetoothSettings") { openSettings(Settings.ACTION_BLUETOOTH_SETTINGS) }
     AsyncFunction("openBatterySettings") { openSettings(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) }

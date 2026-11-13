@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { useSession } from '@/features/auth';
-import { isNativeDeviceMode, nativeBluetooth } from './bluetooth';
-import { locationPermission } from './location';
+import { isNativeDeviceMode, nativeBluetooth } from '@/services/device/bluetooth';
+import { locationPermission } from '@/services/device/location';
 
 /** OS 이벤트는 Android 저장소에 보관하며, 앱 복귀 후 최신 이벤트만 소비한다. */
 export function useVehicleBluetooth({

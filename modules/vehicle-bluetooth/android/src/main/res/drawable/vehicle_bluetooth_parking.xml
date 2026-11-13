@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 알림 상태 표시줄 아이콘: 위치 핀 안의 P. 시스템이 단색으로 칠한다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:fillType="evenOdd"
+      android:pathData="M12,2C7.86,2 4.5,5.36 4.5,9.5c0,5.25 7.5,12.5 7.5,12.5s7.5,-7.25 7.5,-12.5C19.5,5.36 16.14,2 12,2zM9.75,5.5h2.75c1.8,0 3.25,1.45 3.25,3.25S14.3,12 12.5,12h-1v2.5h-1.75zM11.5,7.25v3h1c0.83,0 1.5,-0.67 1.5,-1.5s-0.67,-1.5 -1.5,-1.5z" />
+</vector>
