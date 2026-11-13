@@ -5,18 +5,29 @@ import { Icon } from '@/shared/components/Icon';
 import { colors, radii, shadows } from '@/shared/theme/tokens';
 import type { MapPoint, RiskArea } from '@/shared/types/map';
 
-// 지도 일러스트 위에 올리는 표시 요소. 좌표는 공통 비율 좌표를 쓴다.
+// 실제 지도에 올리는 표시 요소. 현재 지도의 투영 좌표를 사용한다.
 
-const levelColor = { 1: colors.danger, 2: colors.warning } as const;
+const levelColor = { 1: colors.mapLevelOne, 2: colors.warning } as const;
 
 export function RiskAreaShape({ area }: { area: RiskArea }) {
   const color = levelColor[area.level];
   const common = { borderColor: color, borderWidth: 1.6, backgroundColor: `${color}38` };
   if (area.shape.kind === 'rect') {
+    const { width, height } = area.shape.rect;
+    const side = Math.min(
+      typeof width === 'number' ? width : 8,
+      typeof height === 'number' ? height : 8,
+    );
     return (
       <View
         pointerEvents="none"
-        style={[styles.abs, area.shape.rect, common, { borderRadius: 4 }]}
+        style={[
+          styles.abs,
+          area.shape.rect,
+          common,
+          // 작은 구역은 채움만 그려 테두리 최소 픽셀 때문에 범위가 커지지 않게 한다.
+          { borderRadius: Math.min(4, side / 4), borderWidth: side >= 4 ? 1.6 : 0 },
+        ]}
       />
     );
   }
@@ -32,6 +43,7 @@ export function RiskAreaShape({ area }: { area: RiskArea }) {
           top: center.top,
           width: size,
           height: size,
+          borderWidth: size >= 4 ? 1.6 : 0,
           borderRadius: size / 2,
           marginLeft: -size / 2,
           marginTop: -size / 2,
@@ -41,7 +53,7 @@ export function RiskAreaShape({ area }: { area: RiskArea }) {
   );
 }
 
-/** 신고 건수 말풍선. 예시 수치다. */
+/** 서버가 제공한 신고 건수 말풍선. */
 export function CountBubble({
   point,
   count,
@@ -123,9 +135,7 @@ export function LotPin({
         hitSlop={8}
         style={[styles.lot, selected && styles.lotSelected]}
       >
-        <AppText weight="black" style={{ fontSize: selected ? 18 : 15, lineHeight: 22 }}>
-          P
-        </AppText>
+        <Icon name="parking" size={selected ? 22 : 18} color={colors.ink} filled />
       </Pressable>
       {selected && caption ? (
         <View style={styles.pinLabel}>
@@ -149,7 +159,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
-    boxShadow: '0px 2px 8px rgba(0,0,0,0.14)',
+    boxShadow: shadows.floating,
   },
   bubbleAbove: { bottom: 0 },
   bubbleBelow: { top: 0 },
@@ -187,7 +197,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: radii.xs,
     backgroundColor: colors.surface,
-    boxShadow: '0px 2px 6px rgba(0,0,0,0.12)',
+    boxShadow: shadows.raised,
   },
   lot: {
     position: 'absolute',
@@ -196,8 +206,8 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: '#e0b000',
-    backgroundColor: '#fff6d1',
+    borderColor: colors.parkingLine,
+    backgroundColor: colors.parkingSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -208,6 +218,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderColor: colors.surface,
     backgroundColor: colors.parking,
-    boxShadow: '0px 3px 4px rgba(0,0,0,0.22)',
+    boxShadow: shadows.pin,
   },
 });

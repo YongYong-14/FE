@@ -3,6 +3,7 @@ import {
   KakaoMapView,
   type KakaoMapViewRef,
   type MapOptions,
+  type ShapeScene,
 } from '@react-native-kakao/map';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View, type ViewStyle } from 'react-native';
@@ -11,6 +12,8 @@ import { AppText } from '@/shared/components/AppText';
 import { colors, spacing } from '@/shared/theme/tokens';
 import type { Coordinate } from '@/shared/types/location';
 import { TILE_SIZE, type MapView, type ViewSize } from '@/shared/utils/mercator';
+
+import { OUTSIDE_BOUNDS, YONGIN_BOUNDARY } from './yonginBoundary';
 
 // Android 카카오 지도. 끌기·확대는 카카오 SDK가 처리하고, 멈추면 화면 범위를 재서
 // 웹 메르카토르 view(center·zoom)로 알린다. 표시 요소(children)는 그 view 기준 px로 위에 겹치며,
@@ -32,6 +35,30 @@ const BASE_OPTIONS: MapOptions = {
   poi: { visible: true, clickable: false },
 };
 
+/** 서비스 지역 밖을 회색으로 덮는다. 큰 사각형에서 용인시만 구멍으로 비운다. */
+const OUTSIDE_SCENE: ShapeScene = {
+  styleSets: [
+    {
+      type: 'polygon',
+      id: 'outside-service-area',
+      styles: [{ levels: [{ level: 0, fillColor: colors.mapOutside }] }],
+    },
+  ],
+  // zIndex를 낮게 주면 지도 타일 아래에 깔려 보이지 않는다. SDK 기본 순서(10000)를 쓴다.
+  layers: [{ id: 'service-area' }],
+  shapes: [
+    {
+      id: 'outside-yongin',
+      layerId: 'service-area',
+      styleSetId: 'outside-service-area',
+      geometry: {
+        type: 'geographicPolygon',
+        parts: [{ outer: OUTSIDE_BOUNDS, holes: [YONGIN_BOUNDARY] }],
+      },
+    },
+  ],
+};
+
 const near = (a: Coordinate, b: Coordinate) =>
   Math.abs(a.latitude - b.latitude) < 1e-6 && Math.abs(a.longitude - b.longitude) < 1e-6;
 
@@ -47,6 +74,8 @@ interface KakaoGeoMapProps {
   maxZoom: number;
   onViewChange: (view: MapView) => void;
   onSizeChange: (size: ViewSize) => void;
+  onMoveStart?: () => void;
+  onIdle?: (view: MapView) => void;
   children?: ReactNode;
   style?: ViewStyle;
 }
@@ -59,6 +88,8 @@ export function KakaoGeoMap({
   maxZoom,
   onViewChange,
   onSizeChange,
+  onMoveStart,
+  onIdle,
   children,
   style,
 }: KakaoGeoMapProps) {
@@ -70,9 +101,12 @@ export function KakaoGeoMap({
   const mapRef = useRef<KakaoMapViewRef>(null);
   /** 카카오 zoomLevel − 메르카토르 zoom. 멈출 때마다 다시 잰다. */
   const zoomOffset = useRef(0);
+  /** SDK가 실제로 지원하는 범위. 화면별 확대 제한을 적용하기 전에 한 번 읽는다. */
+  const nativeZoomLimits = useRef<NonNullable<MapOptions['zoomRange']> | null>(null);
   /** 마지막으로 잰 카카오 카메라. view가 여기서 온 값이면 카메라를 다시 옮기지 않는다. */
   const camera = useRef<KakaoCamera | null>(null);
-  const latest = useRef({ size, minZoom, maxZoom, onViewChange });
+  const latest = useRef({ size, minZoom, maxZoom, onViewChange, onMoveStart, onIdle });
+  const userMoving = useRef(false);
   const [initialCamera] = useState(() => ({
     latitude: view.center.latitude,
     longitude: view.center.longitude,
@@ -80,8 +114,8 @@ export function KakaoGeoMap({
   }));
 
   useEffect(() => {
-    latest.current = { size, minZoom, maxZoom, onViewChange };
-  }, [size, minZoom, maxZoom, onViewChange]);
+    latest.current = { size, minZoom, maxZoom, onViewChange, onMoveStart, onIdle };
+  }, [size, minZoom, maxZoom, onViewChange, onMoveStart, onIdle]);
 
   useEffect(() => {
     let active = true;
@@ -95,17 +129,21 @@ export function KakaoGeoMap({
   }, [appKey]);
 
   /** 화면 양 끝의 경도 차로 메르카토르 확대 단계를 구해 view로 알린다. */
-  async function measure() {
+  async function measure(settled = false) {
     const map = mapRef.current;
     const { size: current, minZoom: low, maxZoom: high } = latest.current;
-    if (!map || current.width < 2 || current.height < 2) return;
+    if (!map || current.width < 2 || current.height < 2 || userMoving.current) return;
     try {
       const y = current.height / 2;
-      const [position, left, right] = await Promise.all([
+      const [position, left, right, info] = await Promise.all([
         map.getCamera(),
         map.screenToCoordinate({ x: 0, y }),
         map.screenToCoordinate({ x: current.width - 1, y }),
+        nativeZoomLimits.current ? Promise.resolve(null) : map.getMapInfo(),
       ]);
+      const limits = nativeZoomLimits.current ?? info?.zoomRange;
+      if (!limits) return;
+      nativeZoomLimits.current = limits;
       const span = right.longitude - left.longitude;
       if (!(span > 0)) return;
       const zoom = Math.log2(((current.width - 1) * 360) / (span * TILE_SIZE));
@@ -113,13 +151,18 @@ export function KakaoGeoMap({
       zoomOffset.current = offset;
       camera.current = position;
       setZoomRange((previous) => {
-        const next = { min: Math.round(low + offset), max: Math.round(high + offset) };
+        // 화면 px·밀도에 따른 보정으로 범위를 넘으면 SDK가 INVALID_ARGUMENT를 낸다.
+        const withinSdk = (level: number) =>
+          Math.max(limits.min, Math.min(limits.max, Math.round(level)));
+        const next = { min: withinSdk(low + offset), max: withinSdk(high + offset) };
         return previous?.min === next.min && previous.max === next.max ? previous : next;
       });
-      latest.current.onViewChange({
+      const next = {
         center: { latitude: position.latitude, longitude: position.longitude },
         zoom,
-      });
+      };
+      latest.current.onViewChange(next);
+      if (settled && !userMoving.current) latest.current.onIdle?.(next);
     } catch {
       // 지도 준비 전·크기 변경 중의 측정 실패는 다음 멈춤에서 다시 잰다.
     } finally {
@@ -143,7 +186,7 @@ export function KakaoGeoMap({
     camera.current = { ...target, zoomLevel };
     setMoving(true);
     // 이미 같은 자리면 멈춤 이벤트가 오지 않을 수 있어 이동이 끝날 즈음 한 번 더 잰다.
-    const timer = setTimeout(() => void measure(), 400);
+    const timer = setTimeout(() => void measure(true), 400);
     map.moveCamera({ ...target, zoomLevel }, { duration: 250 }).catch(() => setMoving(false));
     return () => clearTimeout(timer);
   }, [mapReady, latitude, longitude, zoom, zoomRange]);
@@ -162,10 +205,18 @@ export function KakaoGeoMap({
           style={StyleSheet.absoluteFill}
           initialCamera={initialCamera}
           options={{ ...BASE_OPTIONS, zoomRange }}
+          shapes={OUTSIDE_SCENE}
           onMapReady={() => setMapReady(true)}
           onError={() => setSdk('error')}
-          onCameraMoveStart={() => setMoving(true)}
-          onCameraIdle={() => void measure()}
+          onCameraMoveStart={(event) => {
+            userMoving.current = event.reason === 'gesture';
+            setMoving(true);
+            latest.current.onMoveStart?.();
+          }}
+          onCameraIdle={() => {
+            userMoving.current = false;
+            void measure(true);
+          }}
           onViewportChanged={() => void measure()}
           accessibilityLabel="카카오 지도. 끌어서 이동하고 두 손가락이나 확대 버튼으로 크기를 바꿀 수 있어요"
         />

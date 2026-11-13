@@ -26,7 +26,7 @@ export interface ScreenPoint {
 
 const worldSize = (zoom: number) => TILE_SIZE * 2 ** zoom;
 
-export function toWorld(coordinate: Coordinate, zoom: number): ScreenPoint {
+function toWorld(coordinate: Coordinate, zoom: number): ScreenPoint {
   const size = worldSize(zoom);
   const latitude = Math.max(-MAX_LATITUDE, Math.min(MAX_LATITUDE, coordinate.latitude));
   const sin = Math.sin((latitude * Math.PI) / 180);
@@ -36,7 +36,7 @@ export function toWorld(coordinate: Coordinate, zoom: number): ScreenPoint {
   };
 }
 
-export function fromWorld(x: number, y: number, zoom: number): Coordinate {
+function fromWorld(x: number, y: number, zoom: number): Coordinate {
   const size = worldSize(zoom);
   const n = Math.PI - (2 * Math.PI * y) / size;
   return {

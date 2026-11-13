@@ -2,7 +2,7 @@ import type { DimensionValue } from 'react-native';
 
 import type { Coordinate } from './location';
 
-// 지도 일러스트 위 배치 좌표(컨테이너 대비 비율). 실제 지도 좌표가 아니다.
+// 지도의 투영 결과를 화면에 표시하는 좌표. 위도·경도와 구분한다.
 export interface MapPoint {
   left: DimensionValue;
   top: DimensionValue;
@@ -65,10 +65,9 @@ export interface RiskZoneData {
   cells: RiskCell[];
   dataPeriod: DataPeriod | null;
   slot: TimeSlot | null;
-  isExampleData: boolean;
 }
 
-export type ParkingLotType = 'public' | 'private' | 'attached';
+export type ParkingLotType = 'public' | 'private' | 'attached' | 'unknown';
 export type ParkingFeeType = 'FREE' | 'PAID' | 'MIXED';
 
 export interface ParkingLot {
@@ -95,5 +94,4 @@ export interface ParkingLotSearch {
   /** 500m 안에 없어 1km까지 넓혀 찾았는지. */
   expanded: boolean;
   lots: ParkingLot[];
-  isExampleData: boolean;
 }

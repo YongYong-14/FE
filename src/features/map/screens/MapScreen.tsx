@@ -16,8 +16,10 @@ import { mapService, placeService } from '@/services';
 import { AppText } from '@/shared/components/AppText';
 import { Icon } from '@/shared/components/Icon';
 import { IconButton } from '@/shared/components/IconButton';
+import { InfoRow } from '@/shared/components/InfoRow';
 import { useDeviceLocation } from '@/shared/hooks/useDeviceLocation';
 import { GeoMap, MAP_ATTRIBUTION } from '@/shared/map/GeoMap';
+import { MAP_MAX_ZOOM as MAX_ZOOM, MAP_MIN_ZOOM as MIN_ZOOM } from '@/shared/map/constants';
 import {
   CountBubble,
   countBubbleSize,
@@ -25,10 +27,17 @@ import {
   PlacePin,
   RiskAreaShape,
 } from '@/shared/map/MapMarkers';
-import { colors, fonts, radii, shadows, spacing, touchTarget } from '@/shared/theme/tokens';
+import {
+  colors,
+  fonts,
+  radii,
+  shadows,
+  spacing,
+  textMetrics,
+  touchTarget,
+} from '@/shared/theme/tokens';
 import type { Coordinate, SelectedPlace } from '@/shared/types/location';
 import type { MapPoint, RiskArea, RiskZoneData } from '@/shared/types/map';
-import { dataPeriodLabel, timeSlotLabel, weekdayLabel } from '@/shared/utils/format';
 import {
   createProjector,
   queryBoxes,
@@ -39,12 +48,8 @@ import {
 
 /** 처음 보여줄 확대 단계(휴대폰 가로 약 750m). */
 const DEFAULT_ZOOM = 16;
-const MIN_ZOOM = 14;
-const MAX_ZOOM = 18;
 /** 이보다 축소하면 칸이 작아 신고 건수 말풍선을 숨긴다. */
 const COUNT_MIN_ZOOM = 15.5;
-/** 법정 거리(5·10m)는 축소하면 점보다 작아 최소 크기로 그린다. */
-const MIN_ZONE_PX = 18;
 /** 한 화면에서 동시에 조회하는 칸 수(칸 하나는 약 1.8km). */
 const MAX_BOXES = 12;
 /** 이동·확대를 멈춘 뒤 조회를 시작하기까지 기다리는 시간. */
@@ -75,7 +80,6 @@ function mergeZones(entries: (BoxEntry | undefined)[]): RiskZoneData | null {
     cells: [...cells.values()],
     dataPeriod: done.find((data) => data.dataPeriod)?.dataPeriod ?? null,
     slot: first.slot,
-    isExampleData: done.some((data) => data.isExampleData),
   };
 }
 
@@ -106,7 +110,7 @@ function toOverlays(data: RiskZoneData, projector: Projector, withBubbles: boole
   data.cells.forEach((cell, index) => {
     const { x, y } = projector.toScreen(cell.coordinate);
     if (!visible(x, y)) return;
-    const side = Math.max(6, projector.metersToPixels(cell.sizeMeters));
+    const side = Math.max(0, projector.metersToPixels(cell.sizeMeters));
     const id = `cell-${index}`;
     areas.push({
       id,
@@ -133,7 +137,7 @@ function toOverlays(data: RiskZoneData, projector: Projector, withBubbles: boole
       shape: {
         kind: 'circle',
         center,
-        size: Math.max(MIN_ZONE_PX, projector.metersToPixels(zone.radiusMeters * 2)),
+        size: Math.max(0, projector.metersToPixels(zone.radiusMeters * 2)),
       },
       badge: center,
       reportCount: 0,
@@ -276,18 +280,6 @@ export function MapScreen() {
     ? toOverlays(zoneData, projector, countsVisible)
     : { areas: [], bubbles: [] };
 
-  const basis = zoneData
-    ? zoneData.isExampleData
-      ? '구역·건수는 시연용 예시 데이터예요'
-      : [
-          dataPeriodLabel(zoneData.dataPeriod),
-          zoneData.slot
-            ? `${weekdayLabel(zoneData.slot.weekday)}요일 ${timeSlotLabel(zoneData.slot.timeSlot)} 기준`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(' · ')
-    : null;
   const hint =
     showCounts && view.zoom < COUNT_MIN_ZOOM
       ? '확대하면 신고 건수가 보여요'
@@ -299,9 +291,10 @@ export function MapScreen() {
     const keyword = query.trim();
     if (!keyword) return;
     let active = true;
+    const controller = new AbortController();
     const timeout = setTimeout(() => {
       placeService
-        .search(keyword)
+        .search(keyword, controller.signal)
         .then((results) => {
           if (active) setSearch({ status: 'done', results });
         })
@@ -312,6 +305,7 @@ export function MapScreen() {
     return () => {
       active = false;
       clearTimeout(timeout);
+      controller.abort();
     };
   }, [query, retryKey]);
 
@@ -396,9 +390,9 @@ export function MapScreen() {
         ) : null}
       </GeoMap>
 
-      <SafeAreaView edges={['top']} style={styles.top} pointerEvents="box-none">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.top} pointerEvents="box-none">
         <View style={styles.searchBar}>
-          <Icon name="search" color={colors.ink} size={18} />
+          <Icon name="search" color={colors.ink} size="md" />
           <TextInput
             value={query}
             onChangeText={(text) => {
@@ -410,6 +404,10 @@ export function MapScreen() {
             placeholderTextColor={colors.textSecondary}
             style={styles.input}
             returnKeyType="search"
+            onSubmitEditing={() => {
+              // 키보드의 검색 키는 첫 결과로 이동한다.
+              if (search.status === 'done' && search.results[0]) choose(search.results[0]);
+            }}
             accessibilityLabel="장소 이름이나 주소 검색"
           />
           {query ? (
@@ -419,7 +417,7 @@ export function MapScreen() {
               accessibilityRole="button"
               accessibilityLabel="검색어 지우기"
             >
-              <Icon name="close" color={colors.textSecondary} size={22} />
+              <Icon name="close" color={colors.textSecondary} size="md" />
             </Pressable>
           ) : null}
         </View>
@@ -500,7 +498,7 @@ export function MapScreen() {
         )}
       </SafeAreaView>
 
-      <View style={styles.bottom} pointerEvents="box-none">
+      <SafeAreaView edges={['left', 'right']} style={styles.bottom} pointerEvents="box-none">
         <View style={styles.zoomColumn} pointerEvents="box-none">
           <IconButton name="add" label="지도 확대" onPress={() => zoomBy(1)} floating />
           <IconButton name="remove" label="지도 축소" onPress={() => zoomBy(-1)} floating />
@@ -509,9 +507,9 @@ export function MapScreen() {
           <View
             style={styles.legend}
             accessible
-            accessibilityLabel="범례. 빨강은 1단계 구역, 주황은 2단계 신고 집중 구역"
+            accessibilityLabel="범례. 회색 원은 실제 1단계 반경, 주황 네모는 2단계 신고 집중 구역"
           >
-            <LegendItem color={colors.danger} label="1단계 구역" />
+            <LegendItem color={colors.mapLevelOne} label="1단계 구역" shape="circle" />
             <LegendItem color={colors.warning} label="2단계 신고 집중" />
           </View>
           <IconButton name="locate" label="현재 위치로 이동" onPress={moveToCurrent} floating />
@@ -543,37 +541,66 @@ export function MapScreen() {
             </Pressable>
           </View>
         ) : null}
-        <View style={styles.noteBox}>
-          <AppText variant="micro" tone="secondary" style={styles.note}>
-            {zoneStatus === 'loading'
-              ? '위험 구역을 불러오고 있어요'
-              : [gps.error, basis, hint ?? '칸이 없다고 안전하다는 뜻은 아니에요']
-                  .filter(Boolean)
-                  .join(' · ')}
-          </AppText>
-          {MAP_ATTRIBUTION ? (
-            <Pressable
-              onPress={() => void Linking.openURL(MAP_ATTRIBUTION?.url ?? '')}
-              accessibilityRole="link"
-              accessibilityLabel={`지도 데이터 출처 ${MAP_ATTRIBUTION.label}`}
-              hitSlop={6}
-              style={styles.attributionLink}
-            >
-              <AppText variant="micro" tone="secondary" style={styles.attribution}>
-                {MAP_ATTRIBUTION.label}
-              </AppText>
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
+        {zoneStatus === 'loading' || gps.error || hint ? (
+          <View style={styles.noteBox}>
+            <InfoRow
+              variant="micro"
+              items={
+                zoneStatus === 'loading'
+                  ? [{ icon: 'reload-outline', text: '위험 구역을 불러오고 있어요' }]
+                  : [
+                      ...(gps.error
+                        ? [{ icon: 'location-outline' as const, text: gps.error }]
+                        : []),
+                      ...(hint
+                        ? [
+                            {
+                              icon: 'information-circle-outline',
+                              text: hint,
+                            } as const,
+                          ]
+                        : []),
+                    ]
+              }
+            />
+          </View>
+        ) : null}
+        {MAP_ATTRIBUTION ? (
+          <Pressable
+            onPress={() => void Linking.openURL(MAP_ATTRIBUTION?.url ?? '')}
+            accessibilityRole="link"
+            accessibilityLabel={`지도 데이터 출처 ${MAP_ATTRIBUTION.label}`}
+            hitSlop={6}
+            style={styles.attributionLink}
+          >
+            <AppText variant="micro" tone="secondary" style={styles.attribution}>
+              {MAP_ATTRIBUTION.label}
+            </AppText>
+          </Pressable>
+        ) : null}
+      </SafeAreaView>
     </View>
   );
 }
 
-function LegendItem({ color, label }: { color: string; label: string }) {
+function LegendItem({
+  color,
+  label,
+  shape = 'rect',
+}: {
+  color: string;
+  label: string;
+  shape?: 'circle' | 'rect';
+}) {
   return (
     <View style={styles.legendItem}>
-      <View style={[styles.legendSwatch, { borderColor: color, backgroundColor: `${color}40` }]} />
+      <View
+        style={[
+          styles.legendSwatch,
+          { borderColor: color, backgroundColor: `${color}40` },
+          shape === 'circle' && styles.legendCircle,
+        ]}
+      />
       <AppText variant="micro" weight="bold">
         {label}
       </AppText>
@@ -596,18 +623,18 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm + 2,
+    gap: spacing.sm,
     minHeight: 52,
     paddingLeft: spacing.lg,
     paddingRight: spacing.md,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
-    boxShadow: '0px 4px 14px rgba(0,0,0,0.14)',
+    boxShadow: shadows.floating,
   },
   input: {
     flex: 1,
     fontFamily: fonts.regular,
-    fontSize: 15,
+    ...textMetrics(15),
     color: colors.ink,
     paddingVertical: 12,
   },
@@ -617,11 +644,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
     minHeight: 40,
-    paddingLeft: spacing.md + 2,
+    paddingLeft: spacing.lg,
     paddingRight: spacing.xs,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
-    boxShadow: '0px 3px 10px rgba(0,0,0,0.10)',
+    boxShadow: shadows.floating,
   },
   results: {
     borderRadius: radii.md,
@@ -667,11 +694,12 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
-    boxShadow: '0px 3px 12px rgba(0,0,0,0.14)',
+    boxShadow: shadows.floating,
     flexShrink: 1,
   },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendSwatch: { width: 10, height: 10, borderRadius: 2, borderWidth: 1.2 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  legendSwatch: { width: 12, height: 12, borderRadius: 2, borderWidth: 1.2 },
+  legendCircle: { borderRadius: 6 },
   placeCard: {
     gap: spacing.xs,
     padding: spacing.lg,
@@ -687,7 +715,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.xs,
     backgroundColor: 'rgba(255,255,255,0.85)',
   },
-  note: { textAlign: 'center' },
   attributionLink: { alignSelf: 'flex-end' },
   attribution: { textDecorationLine: 'underline' },
   zoneError: {

@@ -47,7 +47,7 @@ export const MAP_ATTRIBUTION: { label: string; url: string } | null = KakaoGeoMa
   : { label: '© OpenStreetMap', url: 'https://www.openstreetmap.org/copyright' };
 
 /** 타일 주소. {z}/{x}/{y}를 바꿔 쓴다. 기본은 OpenStreetMap(출처 표기 필요). */
-export const TILE_URL =
+const TILE_URL =
   process.env.EXPO_PUBLIC_MAP_TILE_URL?.trim() || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 /**
  * OpenStreetMap 타일 정책: 앱을 알 수 있는 User-Agent를 보낸다.
@@ -85,6 +85,9 @@ interface GeoMapProps {
   maxZoom: number;
   onViewChange: (view: MapView) => void;
   onSizeChange: (size: ViewSize) => void;
+  /** 지도 조작 시작과 카메라가 멈춘 최종 좌표. 위치 선택 화면의 확정 대기에 사용한다. */
+  onMoveStart?: () => void;
+  onIdle?: (view: MapView) => void;
   /** 지도와 함께 움직이는 표시 요소. 좌표는 현재 view 기준 px다. */
   children?: ReactNode;
   style?: ViewStyle;
@@ -105,6 +108,8 @@ function TileGeoMap({
   maxZoom,
   onViewChange,
   onSizeChange,
+  onMoveStart,
+  onIdle,
   children,
   style,
 }: GeoMapProps) {
@@ -112,14 +117,14 @@ function TileGeoMap({
   const [pinch] = useState(() => new Animated.Value(1));
   const containerRef = useRef<ComponentRef<typeof View>>(null);
   /** 이벤트 처리에서 최신 값을 읽기 위한 참조(렌더 중에는 읽지 않는다). */
-  const latest = useRef({ view, size, minZoom, maxZoom, onViewChange });
+  const latest = useRef({ view, size, minZoom, maxZoom, onViewChange, onMoveStart, onIdle });
   const gesture = useRef({ ...idleGesture });
   /** 손을 뗀 뒤 새 view가 그려지면 이동·확대 효과를 0으로 되돌린다. */
   const resetPending = useRef(false);
 
   useEffect(() => {
-    latest.current = { view, size, minZoom, maxZoom, onViewChange };
-  }, [view, size, minZoom, maxZoom, onViewChange]);
+    latest.current = { view, size, minZoom, maxZoom, onViewChange, onMoveStart, onIdle };
+  }, [view, size, minZoom, maxZoom, onViewChange, onMoveStart, onIdle]);
 
   useLayoutEffect(() => {
     if (!resetPending.current) return;
@@ -184,10 +189,12 @@ function TileGeoMap({
     }
     if (!next) {
       resetMotion();
+      latest.current.onIdle?.(current);
       return;
     }
     resetPending.current = true;
     latest.current.onViewChange(next);
+    latest.current.onIdle?.(next);
   }
 
   // 웹: 마우스 휠로 커서 위치를 중심으로 확대·축소한다.
@@ -200,6 +207,7 @@ function TileGeoMap({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
+      latest.current.onMoveStart?.();
       const rect = node.getBoundingClientRect();
       cursor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
       pendingZoom -= event.deltaY / WHEEL_PIXELS_PER_ZOOM;
@@ -209,8 +217,10 @@ function TileGeoMap({
         const { view: current, size: currentSize, minZoom: low, maxZoom: high } = latest.current;
         const zoom = clamp(current.zoom + pendingZoom, low, high);
         pendingZoom = 0;
-        if (zoom === current.zoom) return;
-        latest.current.onViewChange(zoomAround(current, currentSize, cursor, zoom));
+        const next =
+          zoom === current.zoom ? current : zoomAround(current, currentSize, cursor, zoom);
+        latest.current.onViewChange(next);
+        latest.current.onIdle?.(next);
       }, 80);
     };
     node.addEventListener('wheel', onWheel, { passive: false });
@@ -235,6 +245,7 @@ function TileGeoMap({
       onMoveShouldSetResponder={shouldTakeOver}
       onResponderGrant={() => {
         gesture.current = { ...gesture.current, dx: 0, dy: 0 };
+        latest.current.onMoveStart?.();
       }}
       onResponderMove={moveMap}
       onResponderRelease={commitMotion}
