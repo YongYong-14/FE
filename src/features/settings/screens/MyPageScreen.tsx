@@ -1,17 +1,11 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSession } from '@/features/auth';
 import { useAppReset } from '@/providers/useAppReset';
-import {
-  describeError,
-  isApiMode,
-  notificationSettingsService,
-  systemService,
-  type NotificationSettings,
-} from '@/services';
+import { describeError } from '@/services';
 import { AppModal } from '@/shared/components/AppModal';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
@@ -80,125 +74,6 @@ function Row({
   );
 }
 
-type SettingKey = 'cautionEnabled' | 'nightEnabled';
-
-/** 알림 설정(GET·PATCH /notification-settings). 1단계 위험 알림은 끌 수 없다. */
-function NotificationGroup() {
-  const [settings, setSettings] = useState<NotificationSettings | null>(null);
-  const [status, setStatus] = useState<'loading' | 'done' | 'error'>('loading');
-  const [saving, setSaving] = useState<SettingKey | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchSettings = useCallback(
-    () =>
-      notificationSettingsService
-        .get()
-        .then((value) => {
-          setSettings(value);
-          setStatus('done');
-        })
-        .catch(() => setStatus('error')),
-    [],
-  );
-
-  useEffect(() => {
-    void fetchSettings();
-  }, [fetchSettings]);
-
-  function retry() {
-    setStatus('loading');
-    void fetchSettings();
-  }
-
-  async function toggle(key: SettingKey, value: boolean) {
-    if (!settings || saving) return;
-    const previous = settings;
-    setSettings({ ...settings, [key]: value });
-    setSaving(key);
-    setError(null);
-    try {
-      setSettings(await notificationSettingsService.update({ [key]: value }));
-    } catch (cause) {
-      setSettings(previous);
-      setError(describeError(cause, '설정을 바꾸지 못했어요. 다시 시도해 주세요.'));
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  return (
-    <Group title="알림">
-      {status === 'loading' ? (
-        <View style={styles.row}>
-          <ActivityIndicator color={colors.primary} />
-          <AppText variant="caption" tone="secondary">
-            알림 설정을 불러오고 있어요
-          </AppText>
-        </View>
-      ) : status === 'error' || !settings ? (
-        <Row
-          title="알림 설정을 불러오지 못했어요"
-          description="눌러서 다시 시도해요"
-          last
-          onPress={retry}
-        />
-      ) : (
-        <>
-          <Row
-            title="위험(1단계) 알림"
-            description="소화전·버스정류소 주변은 항상 알려요"
-            trailing={
-              <Switch
-                accessibilityLabel="위험 알림, 항상 켜짐"
-                value
-                disabled
-                trackColor={{ true: colors.primary, false: colors.line }}
-                thumbColor={colors.surface}
-              />
-            }
-          />
-          <Row
-            title="주의(2단계) 알림"
-            description="신고가 몰리는 곳을 알려요. 상위 2% 구역은 꺼도 알려요"
-            trailing={
-              <Switch
-                accessibilityLabel="주의 알림"
-                value={settings.cautionEnabled}
-                disabled={saving !== null}
-                onValueChange={(value) => void toggle('cautionEnabled', value)}
-                trackColor={{ true: colors.primary, false: colors.line }}
-                thumbColor={colors.surface}
-              />
-            }
-          />
-          <Row
-            title="야간 주의 알림"
-            description="22시~다음 날 7시에도 2단계를 알려요"
-            last={!error}
-            trailing={
-              <Switch
-                accessibilityLabel="야간 주의 알림"
-                value={settings.nightEnabled}
-                disabled={saving !== null}
-                onValueChange={(value) => void toggle('nightEnabled', value)}
-                trackColor={{ true: colors.primary, false: colors.line }}
-                thumbColor={colors.surface}
-              />
-            }
-          />
-          {error ? (
-            <View style={styles.row}>
-              <AppText variant="caption" tone="danger" accessibilityRole="alert">
-                {error}
-              </AppText>
-            </View>
-          ) : null}
-        </>
-      )}
-    </Group>
-  );
-}
-
 export function MyPageScreen() {
   const router = useRouter();
   const { snapshot, signOut, withdraw, setSurveyEnabled, isSaving } = useSession();
@@ -219,14 +94,14 @@ export function MyPageScreen() {
 
         <View style={styles.card}>
           <View style={styles.avatar}>
-            <Icon name="person-outline" size={22} />
+            <Icon name="person-outline" size="lg" />
           </View>
           <View style={styles.flex}>
             <AppText variant="body" weight="bold">
               {snapshot.user?.nickname} 님
             </AppText>
             <AppText variant="micro" tone="secondary">
-              {isApiMode ? '카카오 계정으로 로그인됨' : '카카오 계정으로 로그인됨 (데모)'}
+              카카오 계정으로 로그인됨
             </AppText>
           </View>
         </View>
@@ -243,7 +118,7 @@ export function MyPageScreen() {
               등록한 차량
             </AppText>
             <AppText variant="label" weight="bold">
-              {snapshot.vehicle?.name}
+              {snapshot.vehicle?.name ?? '블루투스 등록 건너뜀 (목업)'}
             </AppText>
           </View>
           <Button
@@ -254,8 +129,6 @@ export function MyPageScreen() {
             accessibilityLabel="등록 차량 변경"
           />
         </View>
-
-        <NotificationGroup />
 
         <Group title="설정">
           <Row
@@ -275,7 +148,7 @@ export function MyPageScreen() {
           />
         </Group>
 
-        <Group title="권한·계정">
+        <Group title="권한 및 계정">
           <Row
             title="권한 상태"
             onPress={() => router.push('/settings/permissions')}
@@ -285,7 +158,7 @@ export function MyPageScreen() {
                   variant="caption"
                   style={{ color: permitted ? colors.textSecondary : colors.warningText }}
                 >
-                  {permitted ? '모두 허용 (데모)' : '일부 제한'}
+                  {permitted ? '모두 허용' : '일부 제한'}
                 </AppText>
                 <Icon name="chevron-forward" size="sm" color={colors.textSecondary} />
               </View>
@@ -296,22 +169,13 @@ export function MyPageScreen() {
           <Row title="회원 탈퇴" last onPress={() => setConfirmWithdraw(true)} />
         </Group>
 
-        <Group title="시연">
-          <Row
-            title="데모 설정"
-            description="시나리오·다음 응답·초기화"
-            last
-            onPress={() => router.push('/settings/demo')}
-          />
-        </Group>
-
         {error ? (
           <AppText variant="caption" tone="danger" accessibilityRole="alert">
             {error}
           </AppText>
         ) : null}
         <AppText variant="micro" tone="secondary">
-          버전 0.1.0 · {isApiMode ? `서버 연결 ${systemService.baseUrl ?? ''}` : '프론트엔드 데모'}
+          버전 0.1.0
         </AppText>
       </ScrollView>
 
@@ -324,14 +188,10 @@ export function MyPageScreen() {
             회원 탈퇴하시겠어요?
           </AppText>
           <AppText variant="body" tone="body">
-            {isApiMode
-              ? '서버에 저장된 계정·차량·주차 기록·동의 이력이 모두 바로 삭제되고, 되돌릴 수 없어요.'
-              : '이 기기에 보관한 데모 계정 정보와 지금까지의 주차 기록이 모두 삭제되고, 되돌릴 수 없어요.'}
+            서버에 저장된 계정, 차량, 주차 기록, 동의 이력이 모두 바로 삭제되고, 되돌릴 수 없어요.
           </AppText>
           <AppText variant="caption" tone="secondary">
-            {isApiMode
-              ? '카카오 계정 연결도 함께 끊어요.'
-              : '실제 카카오 계정·서버 데이터는 바뀌지 않아요.'}
+            카카오 계정 연결도 함께 끊어요.
           </AppText>
           {withdrawError ? (
             <AppText variant="caption" tone="danger" accessibilityRole="alert">
@@ -381,20 +241,20 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md + 1,
+    gap: spacing.md,
     padding: spacing.lg,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
   },
   avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.parking,
   },
-  group: { gap: 7, marginTop: spacing.xs },
+  group: { gap: spacing.sm, marginTop: spacing.xs },
   groupCard: { borderRadius: radii.md, backgroundColor: colors.surface, overflow: 'hidden' },
   row: {
     flexDirection: 'row',
@@ -402,7 +262,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     minHeight: 56,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 2,
+    paddingVertical: spacing.sm,
   },
   divider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   rowTexts: { flex: 1, gap: 2 },

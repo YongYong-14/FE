@@ -29,11 +29,13 @@ export function IconTile({
   background = colors.primary,
   color = colors.inverse,
   size = 42,
+  iconPixels,
 }: {
   name: IconName;
   background?: string;
   color?: string;
   size?: number;
+  iconPixels?: number;
 }) {
   return (
     <View
@@ -43,11 +45,11 @@ export function IconTile({
           width: size,
           height: size,
           backgroundColor: background,
-          borderRadius: size >= 48 ? radii.sm : 12,
+          borderRadius: radii.sm,
         },
       ]}
     >
-      <Icon name={name} color={color} size={Math.round(size / 2)} />
+      <Icon name={name} color={color} size={iconPixels ?? Math.round(size / 2)} />
     </View>
   );
 }
@@ -63,7 +65,7 @@ export function SheetSurface({ children, style }: PropsWithChildren<{ style?: Vi
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: radii.md, padding: 18, gap: spacing.sm },
+  card: { borderRadius: radii.md, padding: spacing.xl, gap: spacing.sm },
   tile: { alignItems: 'center', justifyContent: 'center' },
   sheet: {
     backgroundColor: colors.surface,

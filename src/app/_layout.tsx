@@ -1,21 +1,19 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { NotoSansKR_400Regular } from '@expo-google-fonts/noto-sans-kr/400Regular';
-import { NotoSansKR_700Bold } from '@expo-google-fonts/noto-sans-kr/700Bold';
-import { NotoSansKR_900Black } from '@expo-google-fonts/noto-sans-kr/900Black';
+import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, Text } from 'react-native';
+import { Text } from 'react-native';
 
 import { useSession } from '@/features/auth';
 import { AppProviders } from '@/providers/AppProviders';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
 import { Screen } from '@/shared/components/Screen';
-import { colors } from '@/shared/theme/tokens';
-import { missingAgreementsOf } from '@/shared/types/session';
+import { BrandSplash } from '@/shared/components/BrandSplash';
+import { colors, fonts } from '@/shared/theme/tokens';
+import { hasVehicleEntryAccess, missingAgreementsOf } from '@/shared/types/session';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -25,16 +23,11 @@ function RootNavigator() {
     snapshot.user &&
     missingAgreementsOf(snapshot).length === 0 &&
     snapshot.onboardingCompleted &&
-    snapshot.vehicle,
+    hasVehicleEntryAccess(snapshot),
   );
 
   if (isLoading) {
-    return (
-      <Screen contentStyle={{ alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={colors.primary} />
-        <AppText>정보를 불러오고 있어요.</AppText>
-      </Screen>
-    );
+    return <BrandSplash />;
   }
   if (loadError) {
     return (
@@ -63,10 +56,10 @@ function RootNavigator() {
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    NotoSansKR_400Regular,
-    NotoSansKR_700Bold,
-    NotoSansKR_900Black,
-    ...Ionicons.font,
+    [fonts.regular]: require('../../assets/fonts/pretendard/Pretendard-Regular.otf'),
+    [fonts.bold]: require('../../assets/fonts/pretendard/Pretendard-Bold.otf'),
+    [fonts.black]: require('../../assets/fonts/pretendard/Pretendard-Black.otf'),
+    ...FontAwesome6.font,
   });
 
   useEffect(() => {
@@ -74,7 +67,7 @@ export default function RootLayout() {
   }, [fontsLoaded, fontError]);
 
   if (fontError) return <Text>글꼴을 불러오지 못했어요. 앱을 다시 실행해 주세요.</Text>;
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded) return <BrandSplash />;
 
   return (
     <AppProviders>

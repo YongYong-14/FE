@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   outline: { borderColor: colors.line, borderWidth: 1 },
-  small: { borderRadius: radii.pill },
+  small: { borderRadius: radii.xs },
   content: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   pressed: { opacity: 0.86 },
 });

@@ -3,8 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { formatParkedAt, statusTone, useParking } from '@/features/parking';
-import { isApiMode } from '@/services';
+import { formatParkedAgo, statusTone, useParking } from '@/features/parking';
 import { AppText } from '@/shared/components/AppText';
 import { Badge } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
@@ -23,7 +22,7 @@ const filters: { value: Filter; label: string }[] = [
   { value: 'all', label: '전체' },
   { value: 'level-1', label: '1단계' },
   { value: 'level-2', label: '2단계' },
-  { value: 'no-risk-found', label: '알림 대상 아님' },
+  { value: 'no-risk-found', label: analysisStatusLabel['no-risk-found'] },
   { value: 'insufficient-data', label: '판단 불가' },
   { value: 'failed', label: '분석 실패' },
 ];
@@ -34,13 +33,13 @@ function RecordCard({ record, onPress }: { record: ParkingRecord; onPress: () =>
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${formatParkedAt(record.parkedAt)}, ${record.place.address}, ${label}`}
+      accessibilityLabel={`${formatParkedAgo(record.parkedAt)}, ${record.place.address}, ${label}`}
       android_ripple={{ color: 'rgba(0,0,0,0.04)' }}
       style={styles.card}
     >
       <View style={styles.cardTop}>
         <AppText variant="micro" tone="secondary" style={styles.flex}>
-          {formatParkedAt(record.parkedAt)}
+          {formatParkedAgo(record.parkedAt)}
         </AppText>
         <Badge label={label} tone={statusTone[record.status]} dot size="sm" />
       </View>
@@ -76,12 +75,12 @@ export function HistoryScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (isApiMode) void refreshRecords();
+      void refreshRecords();
     }, [refreshRecords]),
   );
 
   useEffect(() => {
-    if (!isApiMode || level === null) return;
+    if (level === null) return;
     let active = true;
     listRecordsByLevel(level)
       .then((items) => {
@@ -105,9 +104,16 @@ export function HistoryScreen() {
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.root}>
       <ScrollView contentContainerStyle={styles.content} stickyHeaderIndices={[1]}>
-        <AppText variant="title" weight="black" accessibilityRole="header" style={styles.title}>
-          기록
-        </AppText>
+        <View>
+          <AppText variant="title" weight="black" accessibilityRole="header" style={styles.title}>
+            기록
+          </AppText>
+          {records.length >= 100 ? (
+            <AppText variant="micro" tone="secondary" style={styles.scopeNote}>
+              최근 서버 기록 최대 100건과 이 기기에 보관된 이전 기록이에요.
+            </AppText>
+          ) : null}
+        </View>
         <View style={styles.filterWrap}>
           <ScrollView
             horizontal
@@ -198,6 +204,7 @@ export function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
+  scopeNote: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md },
   root: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   content: { paddingBottom: spacing.xxxl },
@@ -207,16 +214,16 @@ const styles = StyleSheet.create({
   filter: {
     minHeight: 36,
     justifyContent: 'center',
-    paddingHorizontal: spacing.md + 2,
+    paddingHorizontal: spacing.lg,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.surface,
   },
   filterSelected: { backgroundColor: colors.ink, borderColor: colors.ink },
-  list: { gap: spacing.sm + 2, paddingHorizontal: spacing.xl },
+  list: { gap: spacing.md, paddingHorizontal: spacing.xl },
   card: {
-    gap: 9,
+    gap: spacing.sm,
     padding: spacing.lg,
     borderRadius: radii.md,
     backgroundColor: colors.surface,

@@ -4,7 +4,9 @@ import { AppText } from '@/shared/components/AppText';
 import { Badge, type BadgeTone } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
 import { Card } from '@/shared/components/Surface';
-import { colors, spacing } from '@/shared/theme/tokens';
+import { InfoRow } from '@/shared/components/InfoRow';
+import { Icon } from '@/shared/components/Icon';
+import { colors, radii, spacing } from '@/shared/theme/tokens';
 import type { AnalysisStatus, ParkingRecord, ReportChart } from '@/shared/types/parking';
 
 import { formatParkedAt } from '../utils/report';
@@ -52,9 +54,14 @@ export function ReportView({
         <AppText variant="display" weight="black" accessibilityRole="header">
           {report.headline}
         </AppText>
-        <AppText variant="label" tone="secondary">
-          {record.place.address} · {formatParkedAt(record.parkedAt)} 주차
-        </AppText>
+        <InfoRow
+          variant="label"
+          style={styles.locationInfo}
+          items={[
+            { icon: 'location-outline', text: record.place.address },
+            { icon: 'time-outline', text: `${formatParkedAt(record.parkedAt)} 주차` },
+          ]}
+        />
       </View>
 
       {report.summary ? (
@@ -136,10 +143,6 @@ export function ReportView({
           {note}
         </AppText>
       ))}
-      <AppText variant="micro" tone="secondary" style={styles.disclaimer}>
-        {report.isExampleData ? '시연용 예시 데이터예요. ' : ''}공공데이터를 바탕으로 한 참고
-        정보이며, 법적 판단이 아니에요.
-      </AppText>
 
       <Button
         label="근처 주차장 보기"
@@ -154,25 +157,30 @@ export function ReportView({
 export function ParkingGlyph() {
   return (
     <View style={styles.glyph}>
-      <AppText variant="label" weight="black">
-        P
-      </AppText>
+      <Icon name="parking" size="sm" color={colors.ink} filled />
     </View>
   );
 }
 
 function HourlyChart({ chart }: { chart: ReportChart }) {
   const hours = ['0시', '6시', '12시', '18시', '24시'];
+  const legacyParts = chart.caption.split(/\s*[·—–,]\s*/);
+  const weekday = chart.weekdayLabel ?? legacyParts[0] ?? '선택한 요일';
+  const period = chart.periodLabel ?? (legacyParts.slice(1).join(', ') || '신고 데이터');
   return (
     <Card style={styles.chartCard}>
       <View style={styles.chartHead}>
         <AppText variant="subtitle" weight="bold" style={styles.flex}>
           {chart.title}
         </AppText>
-        <AppText variant="micro" tone="secondary">
-          {chart.caption}
-        </AppText>
       </View>
+      <InfoRow
+        variant="micro"
+        items={[
+          { icon: 'calendar-outline', text: weekday },
+          { icon: 'bar-chart-outline', text: period },
+        ]}
+      />
       <View
         style={styles.bars}
         accessible
@@ -199,7 +207,7 @@ function HourlyChart({ chart }: { chart: ReportChart }) {
         ))}
       </View>
       <AppText variant="label" tone="body">
-        {chart.caption.split(' · ')[0]}{' '}
+        {weekday}{' '}
         <AppText variant="label" weight="bold" style={{ color: colors.warningText }}>
           {chart.peakLabel}
         </AppText>
@@ -211,25 +219,26 @@ function HourlyChart({ chart }: { chart: ReportChart }) {
 
 const styles = StyleSheet.create({
   body: { gap: spacing.md },
-  header: { gap: spacing.sm + 2, paddingHorizontal: spacing.xs, paddingBottom: spacing.sm },
+  header: { gap: spacing.md, paddingHorizontal: spacing.xs, paddingBottom: spacing.sm },
+  locationInfo: { flexDirection: 'column', alignItems: 'flex-start', rowGap: spacing.sm },
   flex: { flex: 1 },
   unavailable: { gap: spacing.xs, marginTop: spacing.xs },
   unavailableRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   retry: { gap: spacing.sm },
-  stats: { flexDirection: 'row', gap: spacing.sm + 2 },
-  stat: { flex: 1, gap: spacing.xs },
-  statValue: { fontSize: 28, lineHeight: 38, letterSpacing: -1 },
-  chartCard: { gap: spacing.md + 2 },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  stat: { flexGrow: 1, flexBasis: 220, minWidth: 220, gap: spacing.xs },
+  statValue: { fontSize: 28 },
+  chartCard: { gap: spacing.lg },
   chartHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   bars: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, height: 110 },
-  bar: { flex: 1, borderTopLeftRadius: 6, borderTopRightRadius: 6, borderRadius: 2 },
+  bar: { flex: 1, borderTopLeftRadius: 4, borderTopRightRadius: 4, borderRadius: 2 },
   axis: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -spacing.xs },
   evidenceRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   disclaimer: { paddingHorizontal: spacing.xs },
   glyph: {
     width: 24,
     height: 24,
-    borderRadius: 7,
+    borderRadius: radii.xs,
     backgroundColor: colors.parking,
     alignItems: 'center',
     justifyContent: 'center',

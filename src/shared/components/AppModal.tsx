@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radii, spacing } from '@/shared/theme/tokens';
 
@@ -29,24 +30,59 @@ export function AppModal({
       navigationBarTranslucent
       onRequestClose={() => (onBackPress ?? onDismiss)?.()}
     >
-      <View style={[styles.root, placement === 'bottom' && styles.bottom]}>
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={onDismiss}
-          disabled={!onDismiss}
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-        />
-        <View
-          style={[styles.card, placement === 'bottom' && styles.bottomCard]}
-          accessibilityViewIsModal
-        >
-          <ScrollView contentContainerStyle={styles.content} bounces={false}>
-            {children}
-          </ScrollView>
-        </View>
-      </View>
+      {/* Modal은 별도 네이티브 창이므로 이 창의 안전 영역을 다시 측정한다. */}
+      <SafeAreaProvider>
+        <ModalContent placement={placement} onDismiss={onDismiss}>
+          {children}
+        </ModalContent>
+      </SafeAreaProvider>
     </Modal>
+  );
+}
+
+function ModalContent({
+  placement,
+  onDismiss,
+  children,
+}: PropsWithChildren<Pick<AppModalProps, 'placement' | 'onDismiss'>>) {
+  const insets = useSafeAreaInsets();
+  const bottomSheet = placement === 'bottom';
+  return (
+    <View
+      style={[
+        styles.root,
+        bottomSheet && styles.bottom,
+        {
+          paddingTop: insets.top + (bottomSheet ? spacing.sm : spacing.xl),
+          paddingBottom: bottomSheet ? 0 : insets.bottom + spacing.xl,
+          paddingLeft: bottomSheet ? 0 : insets.left + spacing.xl,
+          paddingRight: bottomSheet ? 0 : insets.right + spacing.xl,
+        },
+      ]}
+    >
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={onDismiss}
+        disabled={!onDismiss}
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+      />
+      <View style={[styles.card, bottomSheet && styles.bottomCard]} accessibilityViewIsModal>
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            bottomSheet && {
+              paddingBottom: spacing.xxl + insets.bottom,
+              paddingLeft: spacing.xxl + insets.left,
+              paddingRight: spacing.xxl + insets.right,
+            },
+          ]}
+          bounces={false}
+        >
+          {children}
+        </ScrollView>
+      </View>
+    </View>
   );
 }
 
@@ -55,9 +91,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.scrim,
     justifyContent: 'center',
-    padding: spacing.xl,
   },
-  bottom: { justifyContent: 'flex-end', padding: 0 },
+  bottom: { justifyContent: 'flex-end' },
   card: {
     maxHeight: '88%',
     backgroundColor: colors.surface,

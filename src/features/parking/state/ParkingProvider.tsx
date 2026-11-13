@@ -13,11 +13,9 @@ import { AppState } from 'react-native';
 import { useSession } from '@/features/auth';
 import {
   analysisService,
-  demoControl,
   describeError,
   isAbortError,
   isApiError,
-  isApiMode,
   isNativeDeviceMode,
   locationService,
   recordService,
@@ -27,17 +25,15 @@ import type { DataPeriod } from '@/shared/types/map';
 import type {
   CrosswalkAnswer,
   GpsFix,
-  ParkingAlert,
   ParkingRecord,
   ParkingSubmission,
 } from '@/shared/types/parking';
 import { missingAgreementsOf } from '@/shared/types/session';
 import { distanceMeters } from '@/shared/utils/geo';
 import { createUuid } from '@/shared/utils/uuid';
-import { loadShownAlerts, markAlertShown } from '@/storage/alerts';
 import { loadParkingProgressRaw, saveParkingProgressRaw } from '@/storage/parkingProgress';
 import { storageGeneration } from '@/storage/keys';
-import { useVehicleBluetooth } from '@/services/device/useVehicleBluetooth';
+import { useVehicleBluetooth } from '../hooks/useVehicleBluetooth';
 import { nativeBluetooth } from '@/services/device/bluetooth';
 import { listRecords, removeRecord, replaceRecords, upsertRecord } from '@/storage/records';
 
@@ -51,7 +47,7 @@ import {
   type ParkingProgress,
   type ProgressOf,
 } from '../types';
-import { mergeRecord, mergeRemoteRecords, upsertMerged } from '../utils/records';
+import { mergeRecordsForLevel, mergeRemoteRecords, upsertMerged } from '../utils/records';
 import { createId, withCrosswalkEvidence } from '../utils/report';
 import { pauseTimer, restoreTimer, resumeTimer, startTimer } from '../utils/timer';
 
@@ -61,18 +57,18 @@ interface CompletedRun {
 }
 
 /** 서버 판정 요청이 저장되지 못한 이유. 같은 제출값으로 다시 보낼 수 있다. */
-export interface AnalysisError {
+interface AnalysisError {
   kind: 'consent' | 'vehicle' | 'clock' | 'retry';
   message: string;
 }
 
-export interface LatestInfo {
+interface LatestInfo {
   recordId: string | null;
   coordinate: Coordinate | null;
   dataPeriod: DataPeriod | null;
 }
 
-export type RecordDetailResult = 'loaded' | 'not-found' | 'unchanged';
+type RecordDetailResult = 'loaded' | 'not-found' | 'unchanged';
 
 interface ParkingContextValue {
   deviceError: string | null;
@@ -93,6 +89,8 @@ interface ParkingContextValue {
   retryAnalysis: () => void;
   /** 앱 안 터치 시작·종료. 위치 선택 타이머의 정지·재개에 쓴다(어느 화면에서든). */
   notifyTouch: (active: boolean) => void;
+  /** 지도 이동·중앙 좌표의 주소 확인 중 이전 위치가 확정되지 않도록 한다. */
+  setLocationLookupPending: (pending: boolean) => void;
   /** 사후 설문이 재연결 이벤트를 처리한 뒤 비운다. */
   clearReconnectEvent: () => void;
   /** 재연결로 진행이 취소됐을 때 홈에 한 번 보여줄 안내. */
@@ -100,19 +98,11 @@ interface ParkingContextValue {
   /** 등록 차량 재연결 이벤트(사후 설문 판단용). */
   reconnectEvent: { seq: number; at: string } | null;
   clearCancelNotice: () => void;
-  /** 앱이 띄울 위험 알림(서버 결정이 SEND이고 유효기간 안일 때). */
-  pendingAlert: ParkingAlert | null;
-  /** 알림을 실제로 띄운 뒤 호출한다. 중복 표시를 막고 서버에 표시 결과를 보고한다. */
-  acknowledgeAlert: (alert: ParkingAlert) => void;
-  dismissAlert: () => void;
-
-  simulateDisconnect: () => Promise<void>;
-  simulateReconnect: () => Promise<void>;
   startLocating: () => void;
   pauseLocationTimer: () => void;
   resumeLocationTimer: () => void;
   extendLocationTimer: () => void;
-  /** 핀 이동(pin) 또는 목록 선택(list)으로 위치를 바꾼다. */
+  /** 지도 중앙 위치 보정(pin) 또는 주소 목록 선택(list)으로 위치를 바꾼다. */
   adjustPlace: (place: SelectedPlace, source?: 'pin' | 'list') => void;
   confirmLocation: () => void;
   answerCrosswalk: (answer: CrosswalkAnswer) => void;
@@ -121,9 +111,9 @@ interface ParkingContextValue {
   refreshRecords: () => Promise<void>;
   /** 서버 상세로 기록을 채운다(서버 연결 시). */
   loadRecordDetail: (recordId: string) => Promise<RecordDetailResult>;
-  /** 단계별 기록(GET /parking-events?level=). 데모는 기기 기록을 거른다. */
+  /** 단계별 기록(GET /parking-events?level=). */
   listRecordsByLevel: (level: 1 | 2) => Promise<ParkingRecord[]>;
-  /** 데모 초기화·탈퇴용. 진행·예약 작업을 모두 무효화한다. */
+  /** 탈퇴용. 진행·예약 작업을 모두 무효화한다. */
   cancelAll: () => void;
 }
 
@@ -135,7 +125,7 @@ function exceedsAdjustLimit(place: SelectedPlace, gps: GpsFix | null | undefined
   return Boolean(gps && distanceMeters(gps.coordinate, place.coordinate) > MAX_ADJUST_DISTANCE_M);
 }
 
-const ADJUST_NOTICE = `처음 위치에서 ${MAX_ADJUST_DISTANCE_M}m 안으로 핀을 옮겨 주세요.`;
+const ADJUST_NOTICE = `지도를 움직여 처음 GPS 위치에서 ${MAX_ADJUST_DISTANCE_M}m 안의 주차 위치를 맞춰 주세요.`;
 
 export function ParkingProvider({ children }: PropsWithChildren) {
   const { snapshot, updateDevice, requireAgreement } = useSession();
@@ -148,7 +138,6 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   const [reanalyzingRecordId, setReanalyzingRecordId] = useState<string | null>(null);
   const [cancelNotice, setCancelNotice] = useState<string | null>(null);
   const [reconnectEvent, setReconnectEvent] = useState<{ seq: number; at: string } | null>(null);
-  const [pendingAlert, setPendingAlert] = useState<ParkingAlert | null>(null);
   const [analysisError, setAnalysisError] = useState<AnalysisError | null>(null);
   const clearCancelNotice = useCallback(() => setCancelNotice(null), []);
 
@@ -158,10 +147,11 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   const writeQueue = useRef<Promise<void>>(Promise.resolve());
   const [analysisSaveError, setAnalysisSaveError] = useState(false);
   const clearReconnectEvent = useCallback(() => setReconnectEvent(null), []);
-  /** 데모 초기화·탈퇴 시 증가하는 전체 무효화 세대. */
+  /** 탈퇴 시 증가하는 전체 무효화 세대. */
   const epoch = useRef(0);
   const restoringRef = useRef(true);
   const touchingRef = useRef(false);
+  const lookupPendingRef = useRef(false);
   const snapshotRef = useRef(snapshot);
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -203,26 +193,13 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   const refreshRecords = useCallback(async () => {
     const startedIn = epoch.current;
     try {
-      if (!isApiMode) {
-        const local = await listRecords();
-        if (startedIn !== epoch.current) return;
-        setRecords(local);
-        setLatest({
-          recordId: local[0]?.id ?? null,
-          coordinate: local[0]?.place.coordinate ?? null,
-          dataPeriod: null,
-        });
-        setRecordsError(null);
-        return;
-      }
-      const refreshStartedAt = Date.now();
       const [remote, remoteLatest] = await Promise.all([
         recordService.list(),
         recordService.latest(),
       ]);
       if (startedIn !== epoch.current) return;
       const next = await replaceRecords(
-        (cached) => mergeRemoteRecords(remote, cached, refreshStartedAt),
+        (cached) => mergeRemoteRecords(remote, cached),
         () => startedIn === epoch.current,
       );
       if (!next || startedIn !== epoch.current) return;
@@ -239,7 +216,6 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   }, []);
 
   const loadRecordDetail = useCallback(async (recordId: string): Promise<RecordDetailResult> => {
-    if (!isApiMode) return 'unchanged';
     const startedIn = epoch.current;
     const remote = await recordService.get(recordId);
     if (startedIn !== epoch.current) return 'unchanged';
@@ -254,30 +230,9 @@ export function ParkingProvider({ children }: PropsWithChildren) {
 
   const listRecordsByLevel = useCallback(async (level: 1 | 2) => {
     const remote = await recordService.list({ level });
-    if (!isApiMode) return remote;
     const cached = await listRecords().catch(() => [] as ParkingRecord[]);
-    const byId = new Map(cached.map((record) => [record.id, record]));
-    return remote.map((record) => mergeRecord(record, byId.get(record.id)));
+    return mergeRecordsForLevel(remote, cached, level);
   }, []);
-
-  // ── 앱 알림(06 위험 알림): 서버 결정이 SEND이고 유효기간 안이며 처음 띄우는 주차만.
-  const offerAlert = useCallback(async (alert: ParkingAlert | null) => {
-    if (!alert || Date.parse(alert.expiresAt) <= Date.now()) return;
-    const startedIn = epoch.current;
-    const shown = await loadShownAlerts().catch(() => [] as string[]);
-    if (shown.includes(alert.recordId) || startedIn !== epoch.current) return;
-    if (!snapshotRef.current.user) return;
-    setPendingAlert(alert);
-  }, []);
-
-  const acknowledgeAlert = useCallback((alert: ParkingAlert) => {
-    void markAlertShown(alert.recordId).catch(() => undefined);
-    void analysisService
-      .reportDelivery(alert.recordId, { deliveredAt: new Date().toISOString() })
-      .catch(() => undefined);
-  }, []);
-
-  const dismissAlert = useCallback(() => setPendingAlert(null), []);
 
   // ── 위치 조회
   const runLocate = useCallback(
@@ -426,13 +381,15 @@ export function ParkingProvider({ children }: PropsWithChildren) {
         .then(async (outcome) => {
           if (controller.signal.aborted || !stillRunning()) return;
           const now = new Date().toISOString();
+          const report = withCrosswalkEvidence(outcome.report, crosswalkAnswer);
           const record: ParkingRecord = {
             id: outcome.recordId,
             parkedAt: disconnectedAt,
             place: { ...place, address: outcome.address ?? place.address },
             crosswalkAnswer,
-            status: outcome.status,
-            report: withCrosswalkEvidence(outcome.report, crosswalkAnswer),
+            status: report.status,
+            report,
+            serverReport: crosswalkAnswer === 'yes' ? outcome.report : undefined,
             updatedAt: now,
             submission,
             retryable: outcome.retryable,
@@ -461,7 +418,6 @@ export function ParkingProvider({ children }: PropsWithChildren) {
             coordinate: submission.confirmed,
             dataPeriod: previous?.dataPeriod ?? null,
           }));
-          void offerAlert(outcome.alert);
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted || isAbortError(error) || !stillRunning()) return;
@@ -499,7 +455,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
           });
         });
     },
-    [ensureSubmission, offerAlert, requireAgreement, returnToLocation, setProgress],
+    [ensureSubmission, requireAgreement, returnToLocation, setProgress],
   );
   useEffect(() => {
     runAnalysisRef.current = runAnalysis;
@@ -554,7 +510,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   // ── 서버 연결 시: 로그인한 계정이 바뀌면 서버 기록으로 다시 맞춘다.
   const userId = snapshot.user?.id ?? null;
   useEffect(() => {
-    if (!isApiMode || !userId) return;
+    if (!userId) return;
     // 목록 갱신은 비동기로 시작한다(효과 안에서 상태를 바로 바꾸지 않음).
     void Promise.resolve().then(refreshRecords);
   }, [userId, refreshRecords]);
@@ -562,6 +518,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   // ── 15초 만료: 화면이 아니라 상위 상태가 한 번만 처리한다(15m 이내 GPS만 자동 확정).
   const expire = useCallback(
     (runId: string) => {
+      if (lookupPendingRef.current) return;
       updateIf(runId, ['confirming-location'], (current) => {
         if (current.phase !== 'confirming-location') return current;
         if (current.autoConfirm === false) return current;
@@ -608,6 +565,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
 
   // ── 공개 동작
   const cancelProgress = useCallback(() => {
+    lookupPendingRef.current = false;
     abortRef.current?.abort();
     abortRef.current = null;
     reanalysisRef.current?.controller.abort();
@@ -659,14 +617,6 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     [cancelProgress, updateDevice],
   );
 
-  const simulateDisconnect = useCallback(
-    () => handleDisconnect(new Date().toISOString()),
-    [handleDisconnect],
-  );
-  const simulateReconnect = useCallback(
-    () => handleReconnect(new Date().toISOString()),
-    [handleReconnect],
-  );
   const deviceError = useVehicleBluetooth({
     ready: !isRestoring,
     onDisconnect: handleDisconnect,
@@ -703,10 +653,24 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   }, [setProgress]);
 
   const resumeLocationTimer = useCallback(() => {
+    if (lookupPendingRef.current) return;
     const current = progressRef.current;
     if (current?.phase !== 'confirming-location' || current.timer.mode === 'running') return;
     setProgress({ ...current, timer: resumeTimer(current.timer, Date.now()) });
   }, [setProgress]);
+
+  const setLocationLookupPending = useCallback(
+    (pending: boolean) => {
+      lookupPendingRef.current = pending;
+      if (pending) pauseLocationTimer();
+      else {
+        if (!touchingRef.current) resumeLocationTimer();
+        const current = progressRef.current;
+        if (current) expire(current.runId);
+      }
+    },
+    [pauseLocationTimer, resumeLocationTimer, expire],
+  );
 
   const extendLocationTimer = useCallback(() => {
     const current = progressRef.current;
@@ -755,6 +719,10 @@ export function ParkingProvider({ children }: PropsWithChildren) {
         current?.phase === 'confirming-location' ||
         current?.phase === 'selecting-location-manually'
       ) {
+        if (!place.isSupportedRegion) {
+          setProgress({ ...current, phase: 'outside-region', place });
+          return;
+        }
         setProgress({ ...current, place, pinAdjusted: source === 'pin', notice: undefined });
       }
     },
@@ -762,6 +730,7 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   );
 
   const confirmLocation = useCallback(() => {
+    if (lookupPendingRef.current) return;
     const current = progressRef.current;
     if (!current) return;
     if (
@@ -824,61 +793,60 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     if (progressRef.current?.phase === 'outside-region') cancelProgress();
   }, [cancelProgress]);
 
-  const reanalyze = useCallback(
-    async (recordId: string) => {
-      // 첫 await 전에 잠가 연속 탭으로 재분석이 두 번 시작되지 않게 한다.
-      if (reanalysisRef.current) return;
-      const controller = new AbortController();
-      reanalysisRef.current = { recordId, controller };
-      setReanalyzingRecordId(recordId);
-      const startedIn = epoch.current;
-      const valid = () => !controller.signal.aborted && startedIn === epoch.current;
-      try {
-        const record = (await listRecords()).find((item) => item.id === recordId);
-        if (!record) throw new Error('기록을 찾지 못했어요.');
-        const submission = record.submission ?? legacySubmission(record);
-        if (!submission) throw new Error('다시 분석할 수 없는 기록이에요.');
-        if (!valid()) return;
-        const outcome = await analysisService.analyze(
-          {
-            place: record.place,
-            parkedAt: record.parkedAt,
-            crosswalkAnswer: record.crosswalkAnswer,
-            submission,
-          },
-          controller.signal,
-        );
-        // 취소된 재시도는 원래 기록을 그대로 둔다.
-        if (!valid()) return;
-        const next = await upsertRecord(
-          {
-            ...record,
-            id: outcome.recordId,
-            status: outcome.status,
-            report: withCrosswalkEvidence(outcome.report, record.crosswalkAnswer),
-            retryable: outcome.retryable,
-            submission,
-            detailed: false,
-            updatedAt: new Date().toISOString(),
-          },
-          valid,
-        );
-        if (next && valid()) setRecords(next);
-        void offerAlert(outcome.alert);
-      } catch (error) {
-        if (isAbortError(error) || !valid()) return;
-        throw error;
-      } finally {
-        if (reanalysisRef.current?.controller === controller) {
-          reanalysisRef.current = null;
-          setReanalyzingRecordId(null);
-        }
+  const reanalyze = useCallback(async (recordId: string) => {
+    // 첫 await 전에 잠가 연속 탭으로 재분석이 두 번 시작되지 않게 한다.
+    if (reanalysisRef.current) return;
+    const controller = new AbortController();
+    reanalysisRef.current = { recordId, controller };
+    setReanalyzingRecordId(recordId);
+    const startedIn = epoch.current;
+    const valid = () => !controller.signal.aborted && startedIn === epoch.current;
+    try {
+      const record = (await listRecords()).find((item) => item.id === recordId);
+      if (!record) throw new Error('기록을 찾지 못했어요.');
+      const submission = record.submission;
+      if (!submission) throw new Error('다시 분석할 수 없는 기록이에요.');
+      if (!valid()) return;
+      const outcome = await analysisService.analyze(
+        {
+          place: record.place,
+          parkedAt: record.parkedAt,
+          crosswalkAnswer: record.crosswalkAnswer,
+          submission,
+        },
+        controller.signal,
+      );
+      // 취소된 재시도는 원래 기록을 그대로 둔다.
+      if (!valid()) return;
+      const report = withCrosswalkEvidence(outcome.report, record.crosswalkAnswer);
+      const next = await upsertRecord(
+        {
+          ...record,
+          id: outcome.recordId,
+          status: report.status,
+          report,
+          serverReport: record.crosswalkAnswer === 'yes' ? outcome.report : undefined,
+          retryable: outcome.retryable,
+          submission,
+          detailed: false,
+          updatedAt: new Date().toISOString(),
+        },
+        valid,
+      );
+      if (next && valid()) setRecords(next);
+    } catch (error) {
+      if (isAbortError(error) || !valid()) return;
+      throw error;
+    } finally {
+      if (reanalysisRef.current?.controller === controller) {
+        reanalysisRef.current = null;
+        setReanalyzingRecordId(null);
       }
-    },
-    [offerAlert],
-  );
+    }
+  }, []);
 
   const cancelAll = useCallback(() => {
+    lookupPendingRef.current = false;
     epoch.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
@@ -892,24 +860,11 @@ export function ParkingProvider({ children }: PropsWithChildren) {
     setReconnectEvent(null);
     setAnalysisSaveError(false);
     setAnalysisError(null);
-    setPendingAlert(null);
     touchingRef.current = false;
     setRecords([]);
     setLatest(null);
     setRecordsError(null);
   }, []);
-
-  // ── 시연: 예약한 단계에 도달하면 등록 차량 재연결을 발생시킨다.
-  const phase = progress?.phase;
-  useEffect(() => {
-    if (isNativeDeviceMode || !phase || demoControl.get().reconnectAt !== phase) return;
-    const timeout = setTimeout(() => {
-      if (progressRef.current?.phase !== phase) return;
-      demoControl.set({ reconnectAt: null });
-      void simulateReconnect();
-    }, 1500);
-    return () => clearTimeout(timeout);
-  }, [phase, simulateReconnect]);
 
   const value = useMemo<ParkingContextValue>(
     () => ({
@@ -927,13 +882,9 @@ export function ParkingProvider({ children }: PropsWithChildren) {
       analysisError,
       retryAnalysis,
       notifyTouch,
+      setLocationLookupPending,
       clearReconnectEvent,
       clearCancelNotice,
-      pendingAlert,
-      acknowledgeAlert,
-      dismissAlert,
-      simulateDisconnect,
-      simulateReconnect,
       startLocating,
       pauseLocationTimer,
       resumeLocationTimer,
@@ -963,13 +914,9 @@ export function ParkingProvider({ children }: PropsWithChildren) {
       analysisError,
       retryAnalysis,
       notifyTouch,
+      setLocationLookupPending,
       clearReconnectEvent,
       clearCancelNotice,
-      pendingAlert,
-      acknowledgeAlert,
-      dismissAlert,
-      simulateDisconnect,
-      simulateReconnect,
       startLocating,
       pauseLocationTimer,
       resumeLocationTimer,
@@ -987,21 +934,6 @@ export function ParkingProvider({ children }: PropsWithChildren) {
   );
 
   return <ParkingContext.Provider value={value}>{children}</ParkingContext.Provider>;
-}
-
-/** 이 변경 전의 데모 기록에는 제출값이 없다. 데모에서만 같은 위치로 새 제출값을 만든다. */
-function legacySubmission(record: ParkingRecord): ParkingSubmission | null {
-  if (isApiMode || !record.place.coordinate) return null;
-  return {
-    clientEventId: record.id.replace(/^rec-/, ''),
-    vehicleId: 'demo',
-    detectedAt: record.parkedAt,
-    confirmedAt: record.parkedAt,
-    confirmationMethod: 'CONFIRMED',
-    gps: null,
-    confirmed: record.place.coordinate,
-    remeasureCount: 0,
-  };
 }
 
 export function useParking() {

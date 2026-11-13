@@ -6,7 +6,7 @@ import { colors, radii, spacing } from '@/shared/theme/tokens';
 export type BadgeTone = 'neutral' | 'primary' | 'danger' | 'warning' | 'success';
 
 const tones: Record<BadgeTone, { bg: string; fg: string; dot: string }> = {
-  neutral: { bg: colors.neutralSoft, fg: colors.neutralText, dot: colors.textSecondary },
+  neutral: { bg: colors.neutralSoft, fg: colors.textBody, dot: colors.textSecondary },
   primary: { bg: colors.primarySoft, fg: colors.primary, dot: colors.primary },
   danger: { bg: colors.dangerSoft, fg: colors.dangerText, dot: colors.danger },
   warning: { bg: colors.warningSoft, fg: colors.warningText, dot: colors.warning },
@@ -34,7 +34,7 @@ export function Badge({ label, tone = 'neutral', dot, size = 'md' }: BadgeProps)
         weight="bold"
         style={{ color: palette.fg }}
       >
-        {label}
+        {label.replace(/\s*[·—–]\s*/g, ' ')}
       </AppText>
     </View>
   );
@@ -50,6 +50,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radii.pill,
   },
-  small: { minHeight: 22, paddingHorizontal: spacing.sm },
+  small: { minHeight: 24, paddingHorizontal: spacing.sm },
   dot: { width: 8, height: 8, borderRadius: 4 },
 });

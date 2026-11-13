@@ -1,8 +1,9 @@
 import { Stack } from 'expo-router';
 
-import { AlertHost, ParkingTouchGuard } from '@/features/parking';
+import { ParkingTouchGuard } from '@/features/parking';
 import { SurveyHost } from '@/features/survey';
 import { colors } from '@/shared/theme/tokens';
+import { AppText } from '@/shared/components/AppText';
 
 export default function MainLayout() {
   return (
@@ -10,22 +11,28 @@ export default function MainLayout() {
       <MainStack />
       {/* 재탑승 사후 설문은 화면과 무관하게 한 곳에서만 띄운다. */}
       <SurveyHost />
-      {/* 위험 알림(서버 결정 SEND)도 화면과 무관하게 한 곳에서 띄우고 표시 결과를 보고한다. */}
-      <AlertHost />
     </ParkingTouchGuard>
   );
 }
 
 function MainStack() {
   return (
-    <Stack screenOptions={{ contentStyle: { backgroundColor: colors.background } }}>
+    <Stack
+      screenOptions={{
+        contentStyle: { backgroundColor: colors.background },
+        headerTitle: ({ children }) => (
+          <AppText variant="subtitle" weight="bold">
+            {children}
+          </AppText>
+        ),
+      }}
+    >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="parking/confirm" options={{ headerShown: false }} />
       <Stack.Screen name="parking/result" options={{ headerShown: false }} />
       <Stack.Screen name="records/[recordId]" options={{ headerShown: false }} />
       <Stack.Screen name="settings/vehicle" options={{ headerShown: false }} />
       <Stack.Screen name="settings/permissions" options={{ headerShown: false }} />
-      <Stack.Screen name="settings/demo" options={{ title: '데모 설정' }} />
       <Stack.Screen name="settings/legal" options={{ title: '약관 및 개인정보' }} />
     </Stack>
   );

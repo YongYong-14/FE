@@ -26,7 +26,7 @@ export function IconButton({ name, label, onPress, floating }: IconButtonProps) 
         pressed && { opacity: 0.8 },
       ]}
     >
-      <Icon name={name} size={22} color={colors.ink} />
+      <Icon name={name} size="lg" color={colors.ink} />
     </Pressable>
   );
 }

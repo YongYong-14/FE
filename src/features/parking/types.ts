@@ -43,7 +43,7 @@ export type ParkingProgress =
       gps?: GpsFix;
       /** 15m 이내만 시간 만료로 자동 확정한다. 없으면 true(이전 버전). */
       autoConfirm?: boolean;
-      /** 핀을 옮겼는지(ADJUSTED). */
+      /** 지도를 움직여 위치를 보정했는지(ADJUSTED). 저장 형식은 이전 버전과 호환한다. */
       pinAdjusted?: boolean;
       /** 확정을 막은 이유 등 위치 화면 안내. */
       notice?: string;

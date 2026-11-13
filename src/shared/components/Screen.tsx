@@ -10,6 +10,7 @@ interface ScreenProps {
   background?: string;
   edges?: Edge[];
   contentStyle?: ViewStyle;
+  footerStyle?: ViewStyle;
   /** 본문을 위아래로 벌려 배치한다(로그인처럼 상하 분리 레이아웃). */
   spread?: boolean;
 }
@@ -20,6 +21,7 @@ export function Screen({
   background = colors.background,
   edges = ['top', 'left', 'right', 'bottom'],
   contentStyle,
+  footerStyle,
   spread,
 }: PropsWithChildren<ScreenProps>) {
   return (
@@ -31,7 +33,7 @@ export function Screen({
         {children}
       </ScrollView>
       {footer ? (
-        <View style={[styles.footer, { backgroundColor: background }]}>{footer}</View>
+        <View style={[styles.footer, { backgroundColor: background }, footerStyle]}>{footer}</View>
       ) : null}
     </SafeAreaView>
   );

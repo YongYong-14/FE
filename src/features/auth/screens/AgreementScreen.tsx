@@ -134,7 +134,7 @@ export function AgreementScreen() {
         <AppText variant="caption" tone="secondary">
           {missing.length === 1 && missing[0] === 'LOCATION_SERVICE'
             ? '주차 위치 판정과 주변 주차장 찾기에는 위치기반서비스 동의가 필요해요.'
-            : '필수 약관에 모두 동의해야 이용할 수 있어요. 지도는 동의 없이도 볼 수 있어요.'}
+            : '필수 약관에 모두 동의해야 서비스를 이용할 수 있어요.'}
         </AppText>
       </View>
 

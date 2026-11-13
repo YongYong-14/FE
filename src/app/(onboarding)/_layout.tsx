@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 
 import { useSession } from '@/features/auth';
-import { missingAgreementsOf } from '@/shared/types/session';
+import { hasVehicleEntryAccess, missingAgreementsOf } from '@/shared/types/session';
 
 export default function OnboardingLayout() {
   const { snapshot } = useSession();
@@ -19,7 +19,9 @@ export default function OnboardingLayout() {
         <Stack.Screen name="permissions" />
       </Stack.Protected>
       <Stack.Protected
-        guard={signedIn && agreed && snapshot.onboardingCompleted && !snapshot.vehicle}
+        guard={
+          signedIn && agreed && snapshot.onboardingCompleted && !hasVehicleEntryAccess(snapshot)
+        }
       >
         <Stack.Screen name="vehicle-registration" />
       </Stack.Protected>

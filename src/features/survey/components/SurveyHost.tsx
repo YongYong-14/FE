@@ -130,7 +130,7 @@ export function SurveyHost() {
             onPress={() => void finish({ skipped: true })}
           />
           <AppText variant="micro" tone="secondary" style={styles.center}>
-            응답은 이 기기에만 보관하는 데모 데이터예요. 마이페이지에서 설문을 끌 수 있어요.
+            응답은 이 기기에 보관돼요. 마이페이지에서 설문을 끌 수 있어요.
           </AppText>
         </>
       ) : null}

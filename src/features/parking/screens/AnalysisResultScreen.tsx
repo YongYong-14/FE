@@ -3,43 +3,15 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { isApiMode } from '@/services';
-import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
 import { IconButton } from '@/shared/components/IconButton';
 import { StateView } from '@/shared/components/StateView';
 import { colors, radii, spacing } from '@/shared/theme/tokens';
-import type { AnalysisStatus } from '@/shared/types/parking';
 import { markReportViewed } from '@/storage/surveys';
 
-import { MapIllustration, ParkingMarker, RiskZone } from '@/shared/map/MapIllustration';
+import { CoordinateMap } from '@/shared/map/CoordinateMap';
 import { ReportView } from '../components/ReportView';
 import { useParking } from '../state/ParkingProvider';
-
-const MARKER = { left: '50%', top: '48%' } as const;
-
-function ReportMap({ status, zoneLabel }: { status: AnalysisStatus; zoneLabel?: string }) {
-  const zoneTone = status === 'level-1' ? 'danger' : status === 'level-2' ? 'warning' : null;
-  return (
-    <MapIllustration style={styles.map}>
-      {zoneTone ? (
-        <RiskZone left={MARKER.left} top={MARKER.top} size={144} tone={zoneTone} />
-      ) : null}
-      <ParkingMarker left={MARKER.left} top={MARKER.top} />
-      {zoneTone && zoneLabel ? (
-        <View style={styles.zoneLabel}>
-          <AppText
-            variant="micro"
-            weight="bold"
-            style={{ color: zoneTone === 'danger' ? colors.dangerText : colors.warningText }}
-          >
-            {zoneLabel}
-          </AppText>
-        </View>
-      ) : null}
-    </MapIllustration>
-  );
-}
 
 type DetailState = 'idle' | 'loading' | 'not-found' | 'error';
 
@@ -53,28 +25,16 @@ const ADDRESS_REFETCH_MS = 3000;
 export function AnalysisResultScreen() {
   const router = useRouter();
   const { recordId } = useLocalSearchParams<{ recordId?: string }>();
-  const {
-    records,
-    isRestoring,
-    reanalyze,
-    reanalyzingRecordId,
-    recordsError,
-    refreshRecords,
-    loadRecordDetail,
-  } = useParking();
+  const { records, isRestoring, reanalyze, reanalyzingRecordId, loadRecordDetail } = useParking();
   const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
   const [loaded, setLoaded] = useState<{ key: string; state: DetailState } | null>(null);
   const requestKey = `${recordId ?? ''}:${detailKey}`;
-  const detail: DetailState = !isApiMode
-    ? 'idle'
-    : loaded?.key === requestKey
-      ? loaded.state
-      : 'loading';
+  const detail: DetailState = loaded?.key === requestKey ? loaded.state : 'loading';
   const record = records.find((item) => item.id === recordId);
 
   useEffect(() => {
-    if (!isApiMode || !recordId) return;
+    if (!recordId) return;
     let active = true;
     let refetch: ReturnType<typeof setTimeout> | undefined;
     loadRecordDetail(recordId)
@@ -117,7 +77,7 @@ export function AnalysisResultScreen() {
   }
 
   if (!record) {
-    const failed = detail === 'error' || (!isApiMode && recordsError);
+    const failed = detail === 'error';
     return (
       <SafeAreaView style={styles.fallback}>
         <StateView
@@ -131,12 +91,7 @@ export function AnalysisResultScreen() {
           actions={
             <>
               {failed ? (
-                <Button
-                  label="다시 시도"
-                  onPress={() =>
-                    isApiMode ? setDetailKey((key) => key + 1) : void refreshRecords()
-                  }
-                />
+                <Button label="다시 시도" onPress={() => setDetailKey((key) => key + 1)} />
               ) : null}
               <Button label="기록으로" variant="ghost" onPress={() => router.replace('/history')} />
             </>
@@ -149,8 +104,8 @@ export function AnalysisResultScreen() {
   return (
     <View style={styles.root}>
       <ScrollView contentContainerStyle={styles.scroll} bounces={false}>
-        <ReportMap status={record.status} zoneLabel={record.report.zoneLabel} />
-        <SafeAreaView edges={['bottom']} style={styles.sheet}>
+        <CoordinateMap coordinate={record.place.coordinate ?? null} style={styles.map} />
+        <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.sheet}>
           <ReportView
             record={record}
             reanalyzing={reanalyzingRecordId === record.id}
@@ -165,7 +120,7 @@ export function AnalysisResultScreen() {
           />
         </SafeAreaView>
       </ScrollView>
-      <SafeAreaView edges={['top']} style={styles.topBar} pointerEvents="box-none">
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.topBar} pointerEvents="box-none">
         <IconButton name="chevron-back" label="뒤로 가기" onPress={goBack} floating />
       </SafeAreaView>
     </View>
@@ -187,16 +142,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   scroll: { flexGrow: 1 },
-  map: { height: 320 },
-  zoneLabel: {
-    position: 'absolute',
-    left: '56%',
-    top: '68%',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.xs,
-    backgroundColor: colors.surface,
-  },
+  map: { height: 320, minHeight: 320, flex: 0 },
   sheet: {
     flex: 1,
     marginTop: -40,

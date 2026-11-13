@@ -1,33 +1,4 @@
-import type { AnalysisReport, CrosswalkAnswer } from '@/shared/types/parking';
-
-/** 분석 요청 자체가 실패했을 때 저장하는 결과. 위치·주차 시각은 유지한다. */
-export function createFailedReport(answer: CrosswalkAnswer | null): AnalysisReport {
-  return {
-    status: 'failed',
-    badge: '분석 실패',
-    headline: '분석을 마치지 못했어요',
-    summary: '분석 중 문제가 생겼어요. 위치와 주차 시각은 그대로 두고 다시 분석할 수 있어요.',
-    evidence: crosswalkEvidence(answer),
-    stats: [],
-    unavailable: [],
-    isExampleData: true,
-  };
-}
-
-const CROSSWALK_LABEL = '횡단보도 10m 이내 (직접 응답)';
-
-function crosswalkEvidence(answer: CrosswalkAnswer | null) {
-  return answer ? [{ label: CROSSWALK_LABEL, value: answer === 'yes' ? '예' : '아니요' }] : [];
-}
-
-/** 앱에서만 받은 횡단보도 응답을 서버 리포트 근거에 붙인다(이미 있으면 그대로). */
-export function withCrosswalkEvidence(
-  report: AnalysisReport,
-  answer: CrosswalkAnswer | null,
-): AnalysisReport {
-  if (!answer || report.evidence.some((item) => item.label === CROSSWALK_LABEL)) return report;
-  return { ...report, evidence: [...report.evidence, ...crosswalkEvidence(answer)] };
-}
+export { withCrosswalkEvidence } from '@/shared/utils/crosswalk';
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -37,6 +8,38 @@ export function formatParkedAt(iso: string): string {
   const hh = String(date.getHours()).padStart(2, '0');
   const mm = String(date.getMinutes()).padStart(2, '0');
   return `${date.getMonth() + 1}월 ${date.getDate()}일 ${weekdays[date.getDay()]}요일 ${hh}:${mm}`;
+}
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+type RelativeUnit = 'minute' | 'hour' | 'day';
+const unitSuffix: Record<RelativeUnit, string> = { minute: '분', hour: '시간', day: '일' };
+
+/** 런타임이 Intl.RelativeTimeFormat을 지원하면 그대로 쓰고, 없으면 같은 형식으로 만든다. */
+function relativeAgo(value: number, unit: RelativeUnit): string {
+  if (typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function') {
+    try {
+      return new Intl.RelativeTimeFormat('ko', { numeric: 'always' }).format(-value, unit);
+    } catch {
+      // 로케일 데이터가 없는 런타임은 아래 형식으로 표시한다.
+    }
+  }
+  return `${value}${unitSuffix[unit]} 전`;
+}
+
+/**
+ * 목록용 상대 시각. 예: "방금 전", "5분 전", "3시간 전", "2일 전".
+ * 7일이 지났거나 시각이 미래·비정상이면 `formatParkedAt`의 날짜 표기로 돌아간다.
+ */
+export function formatParkedAgo(iso: string, now: number = Date.now()): string {
+  const elapsed = now - Date.parse(iso);
+  if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed >= 7 * DAY) return formatParkedAt(iso);
+  if (elapsed < MINUTE) return '방금 전';
+  if (elapsed < HOUR) return relativeAgo(Math.floor(elapsed / MINUTE), 'minute');
+  if (elapsed < DAY) return relativeAgo(Math.floor(elapsed / HOUR), 'hour');
+  return relativeAgo(Math.floor(elapsed / DAY), 'day');
 }
 
 /** 예: "토요일 19:04" */

@@ -9,12 +9,12 @@ import {
   useState,
 } from 'react';
 
-import { accountService, isApiMode, isNativeDeviceMode, vehicleService } from '@/services';
+import { accountService, vehicleService } from '@/services';
 import {
   createInitialSession,
   missingAgreementsOf,
   type AgreementType,
-  type DemoDeviceState,
+  type DeviceState,
   type RegisteredVehicle,
   type SessionSnapshot,
 } from '@/shared/types/session';
@@ -34,15 +34,17 @@ interface SessionContextValue {
   agree: () => Promise<void>;
   /** 서버가 동의를 요구하면(403 LOCATION_CONSENT_REQUIRED) 동의 화면으로 보낸다. */
   requireAgreement: (type: AgreementType) => Promise<void>;
-  completeOnboarding: (device?: Partial<DemoDeviceState>) => Promise<void>;
+  completeOnboarding: (device?: Partial<DeviceState>) => Promise<void>;
   registerVehicle: (vehicle: RegisteredVehicle) => Promise<void>;
-  /** 서버의 활성 차량으로 맞춘다(GET /vehicle). 데모에서는 아무것도 하지 않는다. */
+  /** 서버 등록 없이 개발 중 차량 등록 화면만 건너뛴다. */
+  skipVehicleRegistration: () => Promise<void>;
+  /** 서버의 활성 차량으로 맞춘다(GET /vehicle). */
   syncVehicle: () => Promise<void>;
   signOut: () => Promise<void>;
   /** 서버 계정을 삭제한다(DELETE /me). 기기 정리는 호출부가 이어서 수행한다. */
   withdraw: () => Promise<void>;
   setSurveyEnabled: (enabled: boolean) => Promise<void>;
-  updateDevice: (patch: Partial<DemoDeviceState>) => Promise<void>;
+  updateDevice: (patch: Partial<DeviceState>) => Promise<void>;
   /** 초기화·탈퇴 후 첫 실행 상태로 되돌린다. 저장소 정리는 호출부가 함께 수행한다. */
   resetSession: () => Promise<void>;
 }
@@ -83,7 +85,6 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   /** 서버 연결 시: 저장된 토큰으로 내 정보·약관·차량을 다시 맞춘다. 오프라인이면 저장값을 유지한다. */
   const restoreRemote = useCallback(async () => {
-    if (!isApiMode) return;
     const startedIn = generation.current;
     const startingUserId = current.current.user?.id;
     const canRestore = () =>
@@ -175,12 +176,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
     const result = await accountService.signIn();
     if (startedIn !== generation.current) return;
     let vehicle: RegisteredVehicle | null | undefined;
-    if (isApiMode) {
-      try {
-        vehicle = await vehicleService.getVehicle();
-      } catch {
-        vehicle = undefined;
-      }
+    try {
+      vehicle = await vehicleService.getVehicle();
+    } catch {
+      vehicle = undefined;
     }
     if (startedIn !== generation.current) return;
     setSessionNotice(null);
@@ -191,11 +190,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
         user: result.user,
         missingAgreements: result.missingAgreements,
         ownerId: result.user.id,
-        // 데모는 기기에 보관한 차량을 그대로 복원한다. 서버 연결 시에는 서버 차량을 따른다.
-        vehicle: !isApiMode
-          ? previous.vehicle
-          : vehicle !== undefined
-            ? mergeVehicle(vehicle, previous.vehicle)
+        onboardingCompleted: sameOwner ? previous.onboardingCompleted : false,
+        vehicleRegistrationMocked: false,
+        vehicle:
+          vehicle !== undefined
+            ? mergeVehicle(vehicle, sameOwner ? previous.vehicle : null)
             : sameOwner
               ? previous.vehicle
               : null,
@@ -221,7 +220,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   );
 
   const syncVehicle = useCallback(async () => {
-    if (!isApiMode || !current.current.user) return;
+    if (!current.current.user) return;
     const startedIn = generation.current;
     const vehicle = await vehicleService.getVehicle();
     if (startedIn !== generation.current) return;
@@ -230,7 +229,12 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const signOut = useCallback(async () => {
     await accountService.signOut();
-    await commit((previous) => ({ ...previous, user: null, missingAgreements: [] }));
+    await commit((previous) => ({
+      ...previous,
+      user: null,
+      missingAgreements: [],
+      vehicleRegistrationMocked: false,
+    }));
   }, [commit]);
 
   const withdraw = useCallback(() => accountService.withdraw(), []);
@@ -245,7 +249,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
 
   const clearSessionNotice = useCallback(() => setSessionNotice(null), []);
   const updateDevice = useCallback(
-    (patch: Partial<DemoDeviceState>) =>
+    (patch: Partial<DeviceState>) =>
       commit((previous) => ({ ...previous, device: { ...previous.device, ...patch } })),
     [commit],
   );
@@ -272,13 +276,18 @@ export function SessionProvider({ children }: PropsWithChildren) {
         commit((previous) => ({
           ...previous,
           vehicle,
+          vehicleRegistrationMocked: false,
           ownerId: previous.user?.id ?? previous.ownerId ?? null,
           device: {
             ...previous.device,
-            vehicleConnected: !isNativeDeviceMode,
-            vehicleConnectionKnown: !isNativeDeviceMode,
+            vehicleConnected: false,
+            vehicleConnectionKnown: false,
           },
         })),
+      skipVehicleRegistration: async () => {
+        if (!__DEV__) throw new Error('개발 빌드에서만 사용할 수 있어요.');
+        await commit((previous) => ({ ...previous, vehicleRegistrationMocked: true }));
+      },
       syncVehicle,
       signOut,
       withdraw,

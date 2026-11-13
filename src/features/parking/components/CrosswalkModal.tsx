@@ -39,9 +39,6 @@ export function CrosswalkModal({
         <AppText variant="caption" tone="secondary">
           {address}
         </AppText>
-        <AppText variant="micro" tone="secondary">
-          직접 알려주신 정보로 리포트에 표시해요. 거리 측정이나 위법 판정 결과가 아니에요.
-        </AppText>
       </View>
       <View style={styles.actions}>
         <Button

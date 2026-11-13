@@ -1,6 +1,6 @@
 import type { ParkingRecord } from '@/shared/types/parking';
 
-import { withCrosswalkEvidence } from './report';
+import { withCrosswalkDecision } from '@/shared/utils/crosswalk';
 
 // 서버 기록과 기기에 남은 기록(캐시)의 병합. 서버가 기록의 존재·판정의 기준이고,
 // 횡단보도 응답·원래 제출값 등 앱에서만 아는 정보는 기기 기록에서 이어 쓴다.
@@ -8,14 +8,18 @@ import { withCrosswalkEvidence } from './report';
 const PLACEHOLDER_ADDRESS = '주소 확인 중';
 
 export function mergeRecord(remote: ParkingRecord, cached?: ParkingRecord): ParkingRecord {
-  if (!cached) return remote;
-  const sameStatus = cached.status === remote.status;
+  if (!cached) return withCrosswalkDecision(remote);
+  const sameStatus =
+    (cached.serverReport?.status ?? cached.status) ===
+    (remote.serverReport?.status ?? remote.status);
   // 요약(목록) 응답이면 같은 판정의 더 완성된 기기 리포트를 유지한다.
   const keepCachedReport =
     !remote.detailed && sameStatus && Boolean(cached.detailed || cached.submission);
   const crosswalkAnswer = remote.crosswalkAnswer ?? cached.crosswalkAnswer;
-  const report = keepCachedReport ? cached.report : remote.report;
-  return {
+  const report = keepCachedReport
+    ? (cached.serverReport ?? cached.report)
+    : (remote.serverReport ?? remote.report);
+  return withCrosswalkDecision({
     ...remote,
     place: {
       ...cached.place,
@@ -24,7 +28,8 @@ export function mergeRecord(remote: ParkingRecord, cached?: ParkingRecord): Park
       coordinate: remote.place.coordinate ?? cached.place.coordinate,
     },
     crosswalkAnswer,
-    report: withCrosswalkEvidence(report, crosswalkAnswer),
+    report,
+    serverReport: undefined,
     submission: cached.submission,
     retryable: keepCachedReport ? cached.retryable : remote.retryable,
     detailed: Boolean(remote.detailed || (keepCachedReport && cached.detailed)),
@@ -33,26 +38,40 @@ export function mergeRecord(remote: ParkingRecord, cached?: ParkingRecord): Park
       Date.parse(cached.updatedAt) > Date.parse(remote.updatedAt)
         ? cached.updatedAt
         : remote.updatedAt,
-  };
+  });
+}
+
+/** 서버 단계 필터에 기기에만 보관된 횡단보도 응답을 반영한다. */
+export function mergeRecordsForLevel(
+  remote: ParkingRecord[],
+  cached: ParkingRecord[],
+  level: 1 | 2,
+): ParkingRecord[] {
+  const local = cached.map(withCrosswalkDecision);
+  const byId = new Map(local.map((record) => [record.id, record]));
+  const combined = new Map(byId);
+  for (const record of remote) {
+    const merged = mergeRecord(record, byId.get(record.id));
+    combined.set(merged.id, merged);
+  }
+  return [...combined.values()]
+    .filter((record) => record.status === (level === 1 ? 'level-1' : 'level-2'))
+    .sort((a, b) => Date.parse(b.parkedAt) - Date.parse(a.parkedAt));
 }
 
 /**
- * 서버 목록으로 기기 기록을 바꾼다. 새로 고침을 시작한 뒤 기기에 저장된 기록은
- * 서버 목록에 아직 없을 수 있으므로 남긴다.
+ * 서버 목록은 최대 100건짜리 일부 목록이다. 응답에 없다는 이유로 보관 기록을
+ * 삭제하지 않고, 같은 id만 최신 서버 결과와 병합한다. 계정 변경·탈퇴는 별도로 정리한다.
  */
 export function mergeRemoteRecords(
   remote: ParkingRecord[],
   cached: ParkingRecord[],
-  refreshStartedAt: number,
 ): ParkingRecord[] {
   const byId = new Map(cached.map((record) => [record.id, record]));
-  const remoteIds = new Set(remote.map((record) => record.id));
-  const fresh = cached.filter(
-    (record) => !remoteIds.has(record.id) && Date.parse(record.updatedAt) >= refreshStartedAt,
-  );
-  return [...fresh, ...remote.map((record) => mergeRecord(record, byId.get(record.id)))].sort(
-    (a, b) => Date.parse(b.parkedAt) - Date.parse(a.parkedAt),
-  );
+  for (const record of remote) byId.set(record.id, mergeRecord(record, byId.get(record.id)));
+  return [...byId.values()]
+    .map(withCrosswalkDecision)
+    .sort((a, b) => Date.parse(b.parkedAt) - Date.parse(a.parkedAt));
 }
 
 /** 상세 하나를 기기 기록에 반영한다. */

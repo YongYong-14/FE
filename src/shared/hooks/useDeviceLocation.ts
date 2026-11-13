@@ -1,20 +1,17 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 
-import { isNativeDeviceMode, locationService, mapService } from '@/services';
+import { locationService } from '@/services';
 import { currentDeviceCoordinate } from '@/services/device/location';
 import type { Coordinate } from '@/shared/types/location';
 
 /** 화면 진입·현재 위치 버튼에서 실제 GPS를 조회한다. 실패한 좌표를 데모로 대체하지 않는다. */
 export function useDeviceLocation(enabled = true) {
-  const [coordinate, setCoordinate] = useState<Coordinate | null>(() =>
-    isNativeDeviceMode ? currentDeviceCoordinate() : mapService.currentLocation(),
-  );
+  const [coordinate, setCoordinate] = useState<Coordinate | null>(() => currentDeviceCoordinate());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sequence = useRef(0);
   const refresh = useCallback(async (signal?: AbortSignal) => {
-    if (!isNativeDeviceMode) return mapService.currentLocation();
     const request = ++sequence.current;
     setLoading(true);
     try {

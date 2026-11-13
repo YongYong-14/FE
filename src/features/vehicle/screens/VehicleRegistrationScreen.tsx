@@ -17,6 +17,8 @@ import { Notice } from '@/shared/components/Notice';
 import { Screen } from '@/shared/components/Screen';
 import { StateView } from '@/shared/components/StateView';
 import { IconTile } from '@/shared/components/Surface';
+import { InfoRow } from '@/shared/components/InfoRow';
+import type { IconName } from '@/shared/components/Icon';
 import { useAsyncAction } from '@/shared/hooks/useAsyncAction';
 import { colors, radii, spacing } from '@/shared/theme/tokens';
 import type { DeviceKind, PairedDevice } from '@/shared/types/session';
@@ -25,6 +27,11 @@ const kindLabel: Record<DeviceKind, string> = {
   'car-audio': '차량 오디오',
   earphone: '이어폰',
   speaker: '스피커',
+};
+const kindIcon: Record<DeviceKind, IconName> = {
+  'car-audio': 'car-outline',
+  earphone: 'headset-outline',
+  speaker: 'volume-high-outline',
 };
 
 function DeviceRow({
@@ -42,7 +49,7 @@ function DeviceRow({
 }) {
   const caption = [vehicle.kind ? kindLabel[vehicle.kind] : null, current ? '현재 등록됨' : null]
     .filter(Boolean)
-    .join(' · ');
+    .join(', ');
   return (
     <Pressable
       accessibilityRole="radio"
@@ -56,17 +63,25 @@ function DeviceRow({
       <IconTile
         name="bluetooth"
         size={40}
-        background={selected ? colors.primary : colors.surface}
+        iconPixels={24}
+        background={selected ? colors.primary : colors.surfaceMuted}
         color={selected ? colors.inverse : colors.textSecondary}
       />
       <View style={styles.rowTexts}>
-        <AppText variant="label" weight="bold">
+        <AppText variant="body" weight="bold">
           {vehicle.name}
         </AppText>
         {caption ? (
-          <AppText variant="micro" tone="secondary">
-            {caption}
-          </AppText>
+          <InfoRow
+            items={[
+              ...(vehicle.kind
+                ? [{ icon: kindIcon[vehicle.kind], text: kindLabel[vehicle.kind] }]
+                : []),
+              ...(current
+                ? [{ icon: 'checkmark-circle-outline' as const, text: '현재 등록됨' }]
+                : []),
+            ]}
+          />
         ) : null}
       </View>
       <View style={[styles.radio, selected && styles.radioSelected]} />
@@ -81,7 +96,7 @@ function DeviceRow({
  */
 export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => void }) {
   const router = useRouter();
-  const { snapshot, registerVehicle, isSaving } = useSession();
+  const { snapshot, registerVehicle, skipVehicleRegistration, isSaving } = useSession();
   const isChange = Boolean(snapshot.vehicle);
   const [vehicles, setVehicles] = useState<PairedDevice[]>([]);
   const currentAddress = snapshot.vehicle?.bluetoothAddress ?? null;
@@ -165,32 +180,19 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
               })
             }
           />
-          {isNativeDeviceMode ? (
-            <>
-              <Button
-                label="블루투스 설정 열기"
-                variant="ghost"
-                size="md"
-                disabled={busy}
-                onPress={() => void run(nativeBluetooth.openSettings)}
-              />
-              <Button
-                label="기기 목록 새로고침"
-                variant="ghost"
-                size="md"
-                disabled={busy || isLoading}
-                onPress={() => void load()}
-              />
-              <AppText variant="micro" tone="secondary" style={styles.center}>
-                휴대폰에 등록된 기기 중 하나를 선택해요. 시연할 때는 이어폰이나 스피커도 등록할 수
-                있어요.
-              </AppText>
-            </>
-          ) : (
-            <AppText variant="micro" tone="secondary" style={styles.center}>
-              웹 시연용 기기 목록이에요.
-            </AppText>
-          )}
+          {__DEV__ && !isChange ? (
+            <Button
+              label="블루투스 등록 건너뛰기 (목업)"
+              variant="outline"
+              disabled={busy}
+              onPress={() =>
+                void run(async () => {
+                  await skipVehicleRegistration();
+                  onComplete?.();
+                })
+              }
+            />
+          ) : null}
         </>
       }
     >
@@ -207,7 +209,6 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
           선택한 기기의 연결이 끊기면 주차로 판단해요. 차량은 1대만 등록할 수 있어요.
         </AppText>
       </View>
-
       {isLoading ? (
         <StateView
           loading
@@ -256,28 +257,46 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
           ))}
         </View>
       )}
+      {isNativeDeviceMode ? (
+        <View style={styles.tools}>
+          <Button
+            label="블루투스 설정"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onPress={() => void run(nativeBluetooth.openSettings)}
+          />
+          <Button
+            label="새로고침"
+            variant="ghost"
+            size="sm"
+            disabled={busy || isLoading}
+            onPress={() => void load()}
+          />
+        </View>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { paddingTop: spacing.lg, gap: spacing.xl },
+  content: { paddingTop: spacing.lg, gap: spacing.lg },
   nav: { marginLeft: -spacing.md, marginBottom: -spacing.sm },
-  header: { gap: spacing.sm, paddingTop: spacing.sm },
-  list: { gap: spacing.sm + 2 },
+  header: { gap: spacing.lg },
+  list: { gap: spacing.lg },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md + 1,
-    padding: 15,
+    gap: spacing.md,
+    padding: spacing.lg,
     borderRadius: radii.md,
     borderWidth: 1.6,
-    borderColor: colors.surfaceMuted,
-    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
   },
   rowSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   rowTexts: { flex: 1, gap: spacing.xxs },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.6, borderColor: colors.line },
-  radioSelected: { borderWidth: 6.5, borderColor: colors.primary },
-  center: { textAlign: 'center' },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.6, borderColor: colors.line },
+  radioSelected: { borderWidth: 6, borderColor: colors.primary },
+  tools: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
 });

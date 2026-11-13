@@ -29,12 +29,15 @@ export function ParkingLotSortDropdown({
   const { width, height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const label = options.find((option) => option.value === value)?.label ?? '가까운 순';
-  const menuWidth = Math.min(width - spacing.xl * 2, Math.max(160, 160 * fontScale));
+  const menuWidth = Math.min(
+    width - insets.left - insets.right - spacing.xl * 2,
+    Math.max(160, 160 * fontScale),
+  );
   const rowHeight = Math.max(touchTarget, 20 * fontScale + spacing.lg * 2);
   const menuHeight = options.length * rowHeight + spacing.xs * 2;
   const left = Math.max(
-    spacing.xl,
-    Math.min((anchor?.right ?? width) - menuWidth, width - menuWidth - spacing.xl),
+    insets.left + spacing.xl,
+    Math.min((anchor?.right ?? width) - menuWidth, width - insets.right - menuWidth - spacing.xl),
   );
   const top = Math.max(
     insets.top + spacing.sm,
@@ -62,7 +65,7 @@ export function ParkingLotSortDropdown({
         </AppText>
         <Icon
           name={anchor ? 'chevron-up' : 'chevron-down'}
-          size={14}
+          size="sm"
           color={colors.textSecondary}
         />
       </Pressable>
@@ -109,7 +112,7 @@ export function ParkingLotSortDropdown({
                   >
                     {option.label}
                   </AppText>
-                  {selected ? <Icon name="checkmark" size={18} color={colors.primary} /> : null}
+                  {selected ? <Icon name="checkmark" size="md" color={colors.primary} /> : null}
                 </Pressable>
               );
             })}

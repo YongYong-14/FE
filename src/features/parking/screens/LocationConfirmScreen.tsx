@@ -1,56 +1,47 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
-import { Icon } from '@/shared/components/Icon';
 import { IconButton } from '@/shared/components/IconButton';
+import { InfoRow } from '@/shared/components/InfoRow';
 import { Notice } from '@/shared/components/Notice';
 import { SheetSurface } from '@/shared/components/Surface';
 import { colors, radii, shadows, spacing } from '@/shared/theme/tokens';
 import type { SelectedPlace } from '@/shared/types/location';
 
 import { CrosswalkModal } from '../components/CrosswalkModal';
-import { DraggablePin } from '../components/DraggablePin';
+import { ParkingLocationMap } from '../components/ParkingLocationMap';
 import { ManualPlacePicker } from '../components/ManualPlacePicker';
-import { MapIllustration } from '@/shared/map/MapIllustration';
 import { ManualConfirmHint, TimerGauge } from '../components/TimerGauge';
 import { useParking } from '../state/ParkingProvider';
-
-const PIN_LEFT = '43%';
-const PIN_TOP = '36%';
-const ADJUSTED_SUFFIX = ' 부근 (핀으로 보정)';
-
-/** 핀 이동량을 예시 좌표·주소로 바꾼다(시연용 근사). */
-function adjustedPlace(place: SelectedPlace, dx: number, dy: number): SelectedPlace {
-  const baseAddress = place.address.replace(ADJUSTED_SUFFIX, '');
-  return {
-    ...place,
-    address: `${baseAddress}${ADJUSTED_SUFFIX}`,
-    coordinate: {
-      latitude: place.coordinate.latitude - dy * 0.00001,
-      longitude: place.coordinate.longitude + dx * 0.00001,
-    },
-  };
-}
+import { gpsOf } from '../types';
 
 export function LocationConfirmScreen() {
   const router = useRouter();
   const parking = useParking();
-  const { progress, lastCompleted, isRestoring } = parking;
+  const { progress, lastCompleted, isRestoring, setLocationLookupPending, adjustPlace } = parking;
   const runIdRef = useRef<string | null>(null);
-  const originRef = useRef<SelectedPlace | null>(null);
+  const [selectionPending, setSelectionPending] = useState(false);
+  const setLookupPending = useCallback(
+    (pending: boolean) => {
+      setSelectionPending(pending);
+      setLocationLookupPending(pending);
+    },
+    [setLocationLookupPending],
+  );
+  const selectPlace = useCallback(
+    (next: SelectedPlace) => {
+      adjustPlace(next, 'pin');
+    },
+    [adjustPlace],
+  );
 
-  const currentPlace = progress && 'place' in progress ? progress.place : null;
   useEffect(() => {
     if (progress) runIdRef.current = progress.runId;
-    // 핀 보정 전 원래 위치를 기준점으로 기억한다(보정이 누적되지 않도록).
-    if (currentPlace && !currentPlace.address.endsWith(ADJUSTED_SUFFIX)) {
-      originRef.current = currentPlace;
-    }
-  }, [progress, currentPlace]);
+  }, [progress]);
 
   // 주차 추정 상태에서 들어오면 위치 조회를 시작한다(재진입 시 시간은 리셋하지 않음).
   useEffect(() => {
@@ -110,7 +101,7 @@ export function LocationConfirmScreen() {
 
   const accuracyLabel =
     progress.phase === 'confirming-location'
-      ? `GPS 정확도 ±${progress.accuracyMeters}m${progress.autoConfirm === false ? ' · 직접 확정' : ''}`
+      ? `GPS 정확도 ±${progress.accuracyMeters}m`
       : progress.phase === 'selecting-location-manually'
         ? '위치 신호 없음'
         : progress.phase === 'locating' || progress.phase === 'suspected'
@@ -119,59 +110,72 @@ export function LocationConfirmScreen() {
 
   return (
     <View style={styles.root}>
-      <MapIllustration style={StyleSheet.absoluteFill}>
-        {showPin && place ? (
-          <DraggablePin
-            key={`${progress.runId}-${place.id}`}
-            left={PIN_LEFT}
-            top={PIN_TOP}
-            hint={
-              progress.phase === 'selecting-location-manually'
-                ? '핀을 주차한 건물 입구로 옮겨 주세요'
-                : '핀을 끌어서 위치를 맞춰요'
-            }
-            disabled={progress.phase === 'awaiting-crosswalk-answer'}
-            onDrop={(dx, dy) => {
-              const origin = originRef.current?.id === place.id ? originRef.current : place;
-              parking.adjustPlace(adjustedPlace(origin, dx, dy), 'pin');
-            }}
-          />
-        ) : null}
-      </MapIllustration>
+      <View style={styles.mapArea}>
+        <ParkingLocationMap
+          place={place}
+          editable={Boolean(showPin) && !locked}
+          gps={progress.phase === 'confirming-location' ? gpsOf(progress) : undefined}
+          onSelect={selectPlace}
+          onLookupPending={setLookupPending}
+        />
 
-      <SafeAreaView edges={['top']} style={styles.topBar} pointerEvents="box-none">
-        {locked ? null : (
-          <IconButton name="chevron-back" label="홈으로 돌아가기" onPress={goHome} floating />
-        )}
-        {accuracyLabel ? (
-          <View style={styles.pill}>
-            <Icon name="locate" size="sm" color={colors.primary} />
-            <AppText variant="caption" weight="bold">
-              {accuracyLabel}
-            </AppText>
-          </View>
-        ) : null}
-      </SafeAreaView>
+        <SafeAreaView
+          edges={['top', 'left', 'right']}
+          style={styles.topBar}
+          pointerEvents="box-none"
+        >
+          {locked ? null : (
+            <IconButton name="chevron-back" label="홈으로 돌아가기" onPress={goHome} floating />
+          )}
+          {accuracyLabel ? (
+            <View style={styles.pill}>
+              <InfoRow
+                items={[
+                  { icon: 'locate', text: accuracyLabel },
+                  ...(progress.phase === 'confirming-location' && progress.autoConfirm === false
+                    ? [{ icon: 'hand-left-outline' as const, text: '직접 확정' }]
+                    : []),
+                ]}
+              />
+            </View>
+          ) : null}
+        </SafeAreaView>
+      </View>
 
       <View style={styles.sheetWrap} pointerEvents="box-none">
-        <SafeAreaView edges={['bottom']} style={styles.sheetSafe}>
+        <SafeAreaView edges={['bottom', 'left', 'right']} style={styles.sheetSafe}>
           <SheetSurface style={styles.sheet}>
-            <SheetContent goHome={goHome} />
+            <ScrollView
+              style={styles.sheetScroll}
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+            >
+              <SheetContent goHome={goHome} selectionPending={selectionPending} />
+            </ScrollView>
           </SheetSurface>
         </SafeAreaView>
       </View>
 
-      <CrosswalkModal
-        key={progress.runId}
-        visible={progress.phase === 'awaiting-crosswalk-answer'}
-        address={place?.address ?? ''}
-        onAnswer={parking.answerCrosswalk}
-      />
+      {progress.phase === 'awaiting-crosswalk-answer' ? (
+        <CrosswalkModal
+          key={progress.runId}
+          visible={progress.phase === 'awaiting-crosswalk-answer'}
+          address={place?.address ?? ''}
+          onAnswer={parking.answerCrosswalk}
+        />
+      ) : null}
     </View>
   );
 }
 
-function SheetContent({ goHome }: { goHome: () => void }) {
+function SheetContent({
+  goHome,
+  selectionPending,
+}: {
+  goHome: () => void;
+  selectionPending: boolean;
+}) {
   const parking = useParking();
   const { progress } = parking;
   if (!progress) return null;
@@ -186,7 +190,8 @@ function SheetContent({ goHome }: { goHome: () => void }) {
             위치를 확인하고 있어요
           </AppText>
           <AppText variant="body" tone="body">
-            차량 연결이 끊긴 곳을 찾는 중이에요. 확인되면 15초 안에 위치를 맞출 수 있어요.
+            차량 연결이 끊긴 곳의 GPS 위치를 찾고 있어요. 지도가 나타나면 중앙 핀에 주차 위치를 맞춰
+            주세요.
           </AppText>
         </View>
       );
@@ -229,10 +234,15 @@ function SheetContent({ goHome }: { goHome: () => void }) {
         <View style={styles.block}>
           <View style={styles.texts}>
             <AppText variant="title" weight="black" accessibilityRole="header">
-              이 위치에 주차하셨나요?
+              중앙 핀이 주차한 위치에 있나요?
             </AppText>
             <AppText variant="body" tone="body">
-              {progress.place.address}
+              {selectionPending
+                ? '지도를 멈추면 중앙 위치의 주소를 확인해요.'
+                : progress.place.address}
+            </AppText>
+            <AppText variant="caption" tone="secondary">
+              지도를 움직여 중앙 핀에 주차한 위치를 맞춰 주세요.
             </AppText>
           </View>
           {progress.notice ? (
@@ -264,6 +274,7 @@ function SheetContent({ goHome }: { goHome: () => void }) {
             <Button
               label="이 위치가 맞아요"
               onPress={parking.confirmLocation}
+              disabled={selectionPending}
               style={styles.primaryAction}
             />
           </View>
@@ -276,10 +287,10 @@ function SheetContent({ goHome }: { goHome: () => void }) {
         <View style={styles.block}>
           <View style={styles.texts}>
             <AppText variant="title" weight="black" accessibilityRole="header">
-              주차한 위치를 골라 주세요
+              주차 위치를 직접 선택해 주세요
             </AppText>
             <AppText variant="body" tone="body">
-              {progress.reason}. 목록에서 직접 고르면 그 위치로 판정해요.
+              {progress.reason}. 주소를 검색한 뒤 지도를 움직여 중앙 핀에 주차한 위치를 맞춰 주세요.
             </AppText>
           </View>
           <ScrollView
@@ -318,7 +329,7 @@ function SheetContent({ goHome }: { goHome: () => void }) {
             <Button
               label="이 위치가 맞아요"
               onPress={parking.confirmLocation}
-              disabled={!progress.place || outside}
+              disabled={!progress.place || outside || selectionPending}
               style={styles.primaryAction}
             />
           </View>
@@ -414,6 +425,7 @@ function AnalysisErrorBlock({ goHome }: { goHome: () => void }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.mapLand },
+  mapArea: { flex: 1, minHeight: 260 },
   center: {
     flex: 1,
     alignItems: 'center',
@@ -432,26 +444,29 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   pill: {
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     minHeight: 40,
-    paddingHorizontal: spacing.md + 2,
+    paddingHorizontal: spacing.lg,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
     boxShadow: shadows.floating,
   },
-  sheetWrap: { position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '72%' },
+  sheetWrap: { maxHeight: '62%', flexShrink: 1 },
   sheetSafe: {
+    flexShrink: 1,
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.sheet,
     borderTopRightRadius: radii.sheet,
   },
-  sheet: { boxShadow: shadows.sheet },
+  sheet: { boxShadow: shadows.sheet, flexShrink: 1 },
+  sheetScroll: { flexShrink: 1 },
   block: { gap: spacing.lg },
-  texts: { gap: spacing.xs + 2 },
+  texts: { gap: spacing.sm },
   loadingBlock: { gap: spacing.sm, alignItems: 'flex-start', paddingBottom: spacing.sm },
-  actions: { flexDirection: 'row', gap: spacing.sm + 2 },
+  actions: { flexDirection: 'row', gap: spacing.md },
   secondaryAction: { flex: 1 },
   primaryAction: { flex: 1.6 },
   pickerScroll: { maxHeight: 240 },
