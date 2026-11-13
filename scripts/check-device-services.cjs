@@ -6,7 +6,8 @@ const path = require('node:path');
 const ts = require('typescript');
 
 const root = path.resolve(__dirname, '..');
-function harness() {
+function harness(platformOS = 'android') {
+  const storage = new Map();
   const calls = { gps: 0, geocode: 0, permissionRequest: 0 };
   const coordinate = { latitude: 37.322, longitude: 127.097, accuracy: 8 };
   const fix = { coords: coordinate, timestamp: Date.now() };
@@ -27,6 +28,7 @@ function harness() {
       calls.gps++;
       return fix;
     },
+    geocodeAsync: async () => [{ latitude: 37.322, longitude: 127.097 }],
     reverseGeocodeAsync: async () => {
       calls.geocode++;
       return [{ city: '용인시', district: '수지구', formattedAddress: '경기도 용인시 수지구' }];
@@ -38,13 +40,22 @@ function harness() {
   const cache = new Map();
   function load(id, parent = path.join(root, 'src/index.ts')) {
     if (id === '@react-native-async-storage/async-storage')
-      return { __esModule: true, default: {} };
+      return {
+        __esModule: true,
+        default: {
+          getItem: async (key) => storage.get(key) ?? null,
+          setItem: async (key, value) => storage.set(key, value),
+        },
+      };
     if (id === 'expo-location') return location;
+    if (id === '@react-native-seoul/kakao-login')
+      return { login: async () => ({ accessToken: 'sdk-user-token' }) };
     if (id === 'expo')
       return { requireOptionalNativeModule: () => (permissions.nativeAvailable ? native : null) };
     if (id === 'react-native')
       return {
-        Platform: { OS: 'android', Version: 35 },
+        Platform: { OS: platformOS, Version: 35 },
+        NativeModules: { RNKakaoLogins: { login: () => undefined } },
         Linking: { openSettings: async () => undefined },
         PermissionsAndroid: {
           PERMISSIONS: { BLUETOOTH_CONNECT: 'connect' },
@@ -85,6 +96,8 @@ function harness() {
   }
   return {
     calls,
+    storage,
+    load,
     coordinate,
     fix,
     native,
@@ -98,6 +111,187 @@ function harness() {
 }
 
 const tests = [
+  [
+    '서버 주소 미설정 시 API 설정 오류',
+    async (h) => {
+      h.load('@/services/api/config').apiConfig.baseUrl = null;
+      await assert.rejects(
+        h.load('@/services/api/client').apiRequest('/health', { auth: false }),
+        (error) => error.code === 'API_CONFIG_MISSING',
+      );
+    },
+  ],
+  [
+    '수동 토큰이 남아 있어도 실제 SDK 사용자 토큰 사용',
+    async (h) => {
+      const config = h.load('@/services/api/config').apiConfig;
+      config.kakaoNativeAppKey = 'project-native-key';
+      config.devKakaoAccessToken = 'old-fixed-user-token';
+      assert.equal(await h.load('@/services/api/kakao').getKakaoLoginToken(), 'sdk-user-token');
+    },
+  ],
+  [
+    '웹 로그인에서 수동 토큰 우회가 열리지 않음',
+    async () => {
+      const web = harness('web');
+      web.load('@/services/api/config').apiConfig.devKakaoAccessToken = 'old-fixed-user-token';
+      await assert.rejects(
+        web.load('@/services/api/kakao').getKakaoLoginToken(),
+        (error) => error.code === 'KAKAO_SDK_UNAVAILABLE',
+      );
+    },
+  ],
+
+  [
+    '기기 확인 전 연결됨으로 표시하지 않음',
+    async (h) => {
+      const device = h.load('@/shared/types/session').createInitialDevice();
+      assert.equal(device.vehicleConnected, false);
+      assert.equal(device.vehicleConnectionKnown, false);
+    },
+  ],
+  [
+    '이전 가짜 계정은 실제 세션으로 복원하지 않음',
+    async (h) => {
+      const result = h.session.parseSession(
+        JSON.stringify({
+          version: 1,
+          user: { id: 'demo-user', nickname: '예시' },
+          vehicle: { id: 'fake', name: '예시' },
+          onboardingCompleted: true,
+          surveyEnabled: true,
+        }),
+      );
+      assert.equal(result.user, null);
+      assert.equal(result.vehicle, null);
+    },
+  ],
+  [
+    '예시 기록만 제외하고 실제 서버 기록은 보존',
+    async (h) => {
+      h.storage.set(
+        '@seulkkamalkka/records:v1',
+        JSON.stringify([
+          {
+            id: 'example',
+            parkedAt: new Date().toISOString(),
+            status: 'level-2',
+            place: {},
+            report: { isExampleData: true },
+          },
+          {
+            id: 'server-record',
+            parkedAt: new Date().toISOString(),
+            status: 'level-2',
+            place: {},
+            report: { isExampleData: false },
+          },
+        ]),
+      );
+      const records = await h.load('@/storage/records').listRecords();
+      assert.deepEqual(
+        records.map((record) => record.id),
+        ['server-record'],
+      );
+    },
+  ],
+  [
+    '빈 주소 검색은 지오코더·예시 목록을 반환하지 않음',
+    async (h) => {
+      h.location.geocodeAsync = async () => {
+        throw new Error('호출되면 안 됨');
+      };
+      assert.deepEqual(await h.gps.devicePlaceService.search('  '), []);
+    },
+  ],
+  [
+    '실제 주소 검색 결과의 좌표·행정구역 사용',
+    async (h) => {
+      const results = await h.gps.devicePlaceService.search('경기도 용인시 수지구');
+      assert.equal(results[0].isSupportedRegion, true);
+      assert.deepEqual(results[0].coordinate, { latitude: 37.322, longitude: 127.097 });
+      assert.equal(h.calls.geocode, 1);
+    },
+  ],
+  [
+    '지오코더 실패 시 예시 장소로 대체하지 않음',
+    async (h) => {
+      h.location.geocodeAsync = async () => {
+        throw new Error('주소 조회 실패');
+      };
+      await assert.rejects(h.gps.devicePlaceService.search('주소'), /주소 조회 실패/);
+    },
+  ],
+  [
+    '용인이 없는 검색어는 용인시를 붙여 함께 찾고 용인시 결과를 먼저 표시',
+    async (h) => {
+      const asked = [];
+      h.location.geocodeAsync = async (text) => {
+        asked.push(text);
+        return text.startsWith('용인시')
+          ? [{ latitude: 37.275, longitude: 127.116 }]
+          : [
+              { latitude: 37.5547, longitude: 126.9707 },
+              { latitude: 37.275, longitude: 127.116 },
+            ];
+      };
+      h.location.reverseGeocodeAsync = async ({ latitude }) =>
+        latitude > 37.5
+          ? [{ city: '서울특별시', district: '중구', formattedAddress: '서울특별시 중구' }]
+          : [{ city: '용인시', district: '기흥구', formattedAddress: '경기도 용인시 기흥구' }];
+      const results = await h.gps.devicePlaceService.search('중앙동');
+      assert.deepEqual(asked.sort(), ['용인시 중앙동', '중앙동']);
+      assert.deepEqual(
+        results.map((place) => place.isSupportedRegion),
+        [true, false],
+      );
+    },
+  ],
+  [
+    '주소 확인에 실패한 좌표가 있어도 나머지 검색 결과 유지',
+    async (h) => {
+      h.location.geocodeAsync = async () => [
+        { latitude: 37.1, longitude: 127.1 },
+        { latitude: 37.322, longitude: 127.097 },
+      ];
+      h.location.reverseGeocodeAsync = async ({ latitude }) =>
+        latitude < 37.2 ? [] : [{ city: '용인시', formattedAddress: '경기도 용인시 수지구' }];
+      const results = await h.gps.devicePlaceService.search('용인시 수지구');
+      assert.equal(results.length, 1);
+      assert.equal(results[0].coordinate.latitude, 37.322);
+    },
+  ],
+  [
+    '주소 검색 전 위치 권한 검사',
+    async (h) => {
+      h.location.getForegroundPermissionsAsync = async () => ({ granted: false });
+      await assert.rejects(h.gps.devicePlaceService.search('주소'), /위치 권한/);
+    },
+  ],
+  [
+    '웹에서 블루투스·주소 검색을 모사하지 않음',
+    async () => {
+      const web = harness('web');
+      assert.equal(await web.bluetooth.nativeBluetooth.permission(), 'unset');
+      await assert.rejects(web.bluetooth.nativeBluetoothDeviceService.listPairedDevices());
+      await assert.rejects(web.gps.devicePlaceService.search('용인시'), /Android/);
+    },
+  ],
+  [
+    '지도 배율에 따라 핀 이동 좌표를 계산',
+    async (h) => {
+      const { createProjector } = h.load('@/shared/utils/mercator');
+      const center = { latitude: 37.322, longitude: 127.097 };
+      const at17 = createProjector({ center, zoom: 17 }, { width: 360, height: 800 });
+      const at18 = createProjector({ center, zoom: 18 }, { width: 360, height: 800 });
+      const shift17 = at17.toCoordinate({ x: 280, y: 400 }).longitude - center.longitude;
+      const shift18 = at18.toCoordinate({ x: 280, y: 400 }).longitude - center.longitude;
+      assert.ok(Math.abs(shift17 / shift18 - 2) < 0.00001);
+      const roundTrip = at17.toCoordinate(at17.toScreen(center));
+      assert.ok(Math.abs(roundTrip.latitude - center.latitude) < 1e-9);
+    },
+  ],
+
   [
     '닉네임이 없는 기존 저장 계정의 ID·차량을 보존',
     async (h) => {

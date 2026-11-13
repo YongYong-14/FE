@@ -34,6 +34,12 @@ jobs:
         run: node scripts/check-pr-target.mjs
       - run: npm ci
       - run: npm run check
+      - name: Check parking reports
+        run: npm run test:parking-reports
+      - name: Check place search
+        run: npm run test:places
+      - name: Check device services
+        run: npm run test:device
       - name: Check Expo package compatibility
         run: npx expo install --check
       - name: Bundle Android JavaScript

@@ -11,11 +11,10 @@
   "scripts": {
     "start": "expo start --dev-client",
     "start:clear": "expo start --dev-client --clear",
+    "assets:branding": "node scripts/generate-branding.cjs",
     "web": "expo start --web",
-    "web:mock": "node scripts/web-with-mock.mjs",
-    "mock:api": "node scripts/mock-api/server.mjs",
-    "test:api": "node scripts/mock-api/contract-check.mjs --spawn",
     "test:device": "node scripts/check-device-services.cjs",
+    "test:places": "node scripts/check-place-search.cjs",
     "android": "expo run:android",
     "android:device": "expo run:android --device",
     "prebuild:android": "expo prebuild --platform android",
@@ -27,10 +26,10 @@
     "check": "npm run typecheck && npm run lint && npm run format:check",
     "export:android": "expo export --platform android",
     "doctor": "expo-doctor",
-    "check:pr": "node scripts/check-pr-target.mjs"
+    "check:pr": "node scripts/check-pr-target.mjs",
+    "test:parking-reports": "node scripts/check-parking-reports.cjs"
   },
   "dependencies": {
-    "@expo-google-fonts/noto-sans-kr": "0.4.4",
     "@expo/vector-icons": "15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-kakao/map": "3.2.0",
@@ -54,6 +53,7 @@
     "react-native-web": "0.21.4"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@types/react": "19.3.0",
     "eslint": "9.39.5",
     "eslint-config-expo": "58.0.4",
