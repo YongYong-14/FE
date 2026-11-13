@@ -1,7 +1,8 @@
 import * as Location from 'expo-location';
+import { Platform } from 'react-native';
 
-import type { LocateResult, LocationService } from '../contracts';
-import type { Coordinate } from '@/shared/types/location';
+import type { LocateResult, LocationService, PlaceService } from '../contracts';
+import type { Coordinate, SelectedPlace } from '@/shared/types/location';
 import type { LocationPermission } from '@/shared/types/session';
 import { nativeBluetooth } from './bluetooth';
 
@@ -15,6 +16,7 @@ export async function locationPermission(): Promise<LocationPermission> {
   const foreground = await Location.getForegroundPermissionsAsync();
   if (foreground.status !== 'granted')
     return foreground.status === 'undetermined' ? 'unset' : 'denied';
+  if (Platform.OS === 'web') return 'foreground';
   const background = await Location.getBackgroundPermissionsAsync();
   return background.granted ? 'always' : 'foreground';
 }
@@ -104,35 +106,11 @@ export const nativeLocationService: LocationService = {
           }
           const coordinate = { latitude, longitude };
           if (!options) cachedCoordinate = coordinate;
-          const addresses = await Location.reverseGeocodeAsync(coordinate);
+          const place = await resolvePlace(coordinate, `gps-${fix.timestamp}`);
           if (settled) return;
-          const address = addresses[0];
-          // 경계 상자나 데모 지역 값으로 용인시라고 단정하지 않는다.
-          const areas = [address?.city, address?.subregion, address?.district]
-            .filter(Boolean)
-            .join(' ');
-          if (!address || !areas.trim()) {
-            finish({
-              kind: 'unavailable',
-              reason: '현재 위치의 행정구역을 확인하지 못했어요. 다시 측정해 주세요.',
-            });
-            return;
-          }
-          const isSupportedRegion = /용인|\byongin(?:-si)?\b/i.test(areas);
-          const label =
-            address.formattedAddress ||
-            [address.region, address.city, address.district, address.street, address.streetNumber]
-              .filter(Boolean)
-              .join(' ');
           finish({
             kind: 'located',
-            place: {
-              id: `gps-${fix.timestamp}`,
-              name: '현재 위치',
-              address: label || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
-              coordinate,
-              isSupportedRegion,
-            },
+            place: { ...place, name: '현재 위치' },
             accuracyMeters: Math.ceil(accuracy),
           });
         })
@@ -143,5 +121,65 @@ export const nativeLocationService: LocationService = {
           }),
         );
     });
+  },
+};
+
+/** 좌표의 주소와 실제 행정구역을 확인한다. 확인 실패를 지원 지역으로 간주하지 않는다. */
+export async function resolvePlace(coordinate: Coordinate, id?: string): Promise<SelectedPlace> {
+  if (Platform.OS !== 'android') throw new Error('주소 확인은 Android 앱에서 이용해 주세요.');
+  const [address] = await Location.reverseGeocodeAsync(coordinate);
+  const areas = [address?.city, address?.subregion, address?.district].filter(Boolean).join(' ');
+  if (!address || !areas.trim())
+    throw new Error('위치의 주소를 확인하지 못했어요. 다시 시도해 주세요.');
+  const label =
+    address.formattedAddress ||
+    [address.region, address.city, address.district, address.street, address.streetNumber]
+      .filter(Boolean)
+      .join(' ');
+  return {
+    id: id ?? `place-${coordinate.latitude},${coordinate.longitude}`,
+    name: address.name || label,
+    address: label || `${coordinate.latitude.toFixed(6)}, ${coordinate.longitude.toFixed(6)}`,
+    coordinate,
+    isSupportedRegion: /용인|\byongin(?:-si)?\b/i.test(areas),
+  };
+}
+
+const MAX_SEARCH_RESULTS = 6;
+
+/** Android 지오코더에서 실제 주소를 검색한다. 미입력·실패 시 예시 결과를 만들지 않는다. */
+export const devicePlaceService: PlaceService = {
+  async search(query) {
+    const keyword = query.trim();
+    if (!keyword) return [];
+    if (Platform.OS !== 'android') throw new Error('주소 검색은 Android 앱에서 이용해 주세요.');
+    if (!(await Location.getForegroundPermissionsAsync()).granted)
+      throw new Error('주소를 검색하려면 위치 권한을 허용해 주세요.');
+    // 지오코더는 지역을 가리지 않아 같은 이름의 다른 지역이 먼저 나올 수 있다.
+    // 검색어에 용인이 없으면 용인시를 붙인 검색도 함께 시도한다.
+    const queries = keyword.includes('용인') ? [keyword] : [`용인시 ${keyword}`, keyword];
+    const geocoded = await Promise.allSettled(queries.map((item) => Location.geocodeAsync(item)));
+    const failure = geocoded.find((item) => item.status === 'rejected');
+    if (failure && geocoded.every((item) => item.status === 'rejected')) throw failure.reason;
+    const unique = new Map<string, Coordinate>();
+    for (const item of geocoded) {
+      if (item.status !== 'fulfilled') continue;
+      for (const { latitude, longitude } of item.value) {
+        const key = `${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+        if (!unique.has(key)) unique.set(key, { latitude, longitude });
+      }
+    }
+    // 주소 확인에 실패한 좌표 하나 때문에 나머지 결과까지 버리지 않는다.
+    const resolved = await Promise.allSettled(
+      [...unique.values()].slice(0, MAX_SEARCH_RESULTS).map((item) => resolvePlace(item)),
+    );
+    const places = resolved.flatMap((item) => (item.status === 'fulfilled' ? [item.value] : []));
+    const unresolved = resolved.find((item) => item.status === 'rejected');
+    if (places.length === 0 && unresolved) throw unresolved.reason;
+    // 용인시 안의 결과를 먼저 보여준다.
+    return [
+      ...places.filter((place) => place.isSupportedRegion),
+      ...places.filter((place) => !place.isSupportedRegion),
+    ];
   },
 };

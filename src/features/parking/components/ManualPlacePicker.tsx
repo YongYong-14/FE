@@ -4,13 +4,10 @@ import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react
 import { placeService } from '@/services';
 import { AppText } from '@/shared/components/AppText';
 import { Icon } from '@/shared/components/Icon';
-import { colors, fonts, radii, spacing, touchTarget } from '@/shared/theme/tokens';
+import { colors, fonts, radii, spacing, textMetrics, touchTarget } from '@/shared/theme/tokens';
 import type { SelectedPlace } from '@/shared/types/location';
 
-/**
- * GPS를 받지 못했을 때 공통 예시 장소에서 위치를 고른다.
- * 지도·검색 담당의 공통 검색 컴포넌트가 생기면 교체할 연결 지점이다.
- */
+/** GPS를 받지 못했을 때 실제 상호·주소 검색 결과에서 위치를 고른다. */
 export function ManualPlacePicker({
   selectedId,
   onSelect,
@@ -25,16 +22,20 @@ export function ManualPlacePicker({
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     const timeout = setTimeout(() => {
       void placeService
-        .search(query)
+        .search(query, controller.signal)
         .then((items) => {
           if (!active) return;
           setResults(items);
           setError(false);
         })
         .catch(() => {
-          if (active) setError(true);
+          if (active) {
+            setResults([]);
+            setError(true);
+          }
         })
         .finally(() => {
           if (active) setLoading(false);
@@ -43,6 +44,7 @@ export function ManualPlacePicker({
     return () => {
       active = false;
       clearTimeout(timeout);
+      controller.abort();
     };
   }, [query]);
 
@@ -56,7 +58,7 @@ export function ManualPlacePicker({
             setQuery(text);
             setLoading(true);
           }}
-          placeholder="장소 이름이나 주소로 찾기"
+          placeholder="상호, 건물명 또는 주소 입력"
           placeholderTextColor={colors.textSecondary}
           style={styles.input}
           accessibilityLabel="장소 검색"
@@ -71,7 +73,9 @@ export function ManualPlacePicker({
       ) : null}
       {!loading && !error && results.length === 0 ? (
         <AppText variant="caption" tone="secondary">
-          검색 결과가 없어요. 다른 이름이나 주소로 찾아보세요.
+          {query.trim()
+            ? '검색 결과가 없어요. 상호나 주소를 확인해 주세요.'
+            : '주차한 곳의 상호, 건물명 또는 주소를 입력해 주세요.'}
         </AppText>
       ) : null}
       {!loading &&
@@ -116,9 +120,9 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontFamily: fonts.regular,
-    fontSize: 15,
+    ...textMetrics(15),
     color: colors.ink,
-    paddingVertical: 10,
+    paddingVertical: spacing.md,
   },
   loading: { paddingVertical: spacing.md },
   row: {
