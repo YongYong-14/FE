@@ -280,12 +280,8 @@ export function MapScreen() {
     ? toOverlays(zoneData, projector, countsVisible)
     : { areas: [], bubbles: [] };
 
-  const hint =
-    showCounts && view.zoom < COUNT_MIN_ZOOM
-      ? '확대하면 신고 건수가 보여요'
-      : truncated
-        ? '확대하면 가장자리 구역도 보여요'
-        : null;
+  // 신고 건수는 확대했을 때만 보이지만 따로 안내하지 않는다. 가장자리가 잘렸을 때만 알린다.
+  const hint = truncated ? '확대하면 가장자리 구역도 보여요' : null;
 
   useEffect(() => {
     const keyword = query.trim();
@@ -507,10 +503,10 @@ export function MapScreen() {
           <View
             style={styles.legend}
             accessible
-            accessibilityLabel="범례. 회색 원은 실제 1단계 반경, 주황 네모는 2단계 신고 집중 구역"
+            accessibilityLabel="범례. 회색 원은 주정차 금지 구역, 주황 네모는 신고 다발 구역"
           >
-            <LegendItem color={colors.mapLevelOne} label="1단계 구역" shape="circle" />
-            <LegendItem color={colors.warning} label="2단계 신고 집중" />
+            <LegendItem color={colors.mapLevelOne} label="금지 구역" shape="circle" />
+            <LegendItem color={colors.warning} label="신고 다발" />
           </View>
           <IconButton name="locate" label="현재 위치로 이동" onPress={moveToCurrent} floating />
         </View>
@@ -524,7 +520,7 @@ export function MapScreen() {
             </AppText>
             <AppText variant="caption" tone="body">
               {selected.isSupportedRegion
-                ? '주변 1단계 구역과 신고 이력을 지도에서 확인하세요. 검색만으로 주차 분석은 시작하지 않아요.'
+                ? '주변 주정차 금지 구역과 신고 다발 구역을 지도에서 확인하세요. 검색만으로 주차 분석은 시작하지 않아요.'
                 : '용인시 밖이에요. 이 지역은 위험 정보를 제공하지 않아요.'}
             </AppText>
           </View>
