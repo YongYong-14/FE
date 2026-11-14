@@ -8,7 +8,7 @@ export default function OnboardingLayout() {
   const signedIn = Boolean(snapshot.user);
   const agreed = missingAgreementsOf(snapshot).length === 0;
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Protected guard={!signedIn}>
         <Stack.Screen name="login" />
       </Stack.Protected>

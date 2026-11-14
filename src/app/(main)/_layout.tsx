@@ -19,6 +19,8 @@ function MainStack() {
   return (
     <Stack
       screenOptions={{
+        // 새 화면은 오른쪽에서 밀려 들어오고, 뒤로 가면 반대로 빠진다.
+        animation: 'slide_from_right',
         contentStyle: { backgroundColor: colors.background },
         headerTitle: ({ children }) => (
           <AppText variant="subtitle" weight="bold">
