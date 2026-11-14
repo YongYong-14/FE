@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, StyleSheet, View } from 'react-native';
+import { AppState, Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSession } from '@/features/auth';
 import {
@@ -18,9 +18,9 @@ import { CoordinateMap } from '@/shared/map/CoordinateMap';
 import { LocationDot } from '@/shared/map/MapMarkers';
 import { useDeviceLocation } from '@/shared/hooks/useDeviceLocation';
 import { BottomBanner, Notice } from '@/shared/components/Notice';
-import { Card, IconTile } from '@/shared/components/Surface';
+import { Card } from '@/shared/components/Surface';
 import { colors, radii, spacing } from '@/shared/theme/tokens';
-import { hasDetectionPermissions, usesMockVehicleRegistration } from '@/shared/types/session';
+import { hasDetectionPermissions } from '@/shared/types/session';
 import { nativeBluetooth } from '@/services/device/bluetooth';
 import { HomeMapSheet } from '../components/HomeMapSheet';
 
@@ -77,7 +77,6 @@ export function HomeScreen() {
     deviceError,
   } = useParking();
   const { device, vehicle } = snapshot;
-  const mockedVehicle = usesMockVehicleRegistration(snapshot);
   // 최근 주차는 서버의 GET /parking-events/latest가 기준이다.
   const latest =
     (latestInfo?.recordId ? records.find((record) => record.id === latestInfo.recordId) : null) ??
@@ -121,17 +120,15 @@ export function HomeScreen() {
     return () => clearTimeout(timeout);
   }, [cancelNotice, clearCancelNotice]);
 
-  const connection: { label: string; tone: BadgeTone } = mockedVehicle
-    ? { label: '목업', tone: 'neutral' }
-    : !device.bluetoothEnabled
-      ? { label: '블루투스 꺼짐', tone: 'neutral' }
-      : deviceError
-        ? { label: '연결 확인 실패', tone: 'warning' }
-        : device.vehicleConnectionKnown !== true
-          ? { label: '감지 준비 중', tone: 'neutral' }
-          : device.vehicleConnected
-            ? { label: '연결됨', tone: 'primary' }
-            : { label: '연결 해제됨', tone: 'warning' };
+  const connection: { label: string; tone: BadgeTone } = !device.bluetoothEnabled
+    ? { label: '블루투스 꺼짐', tone: 'neutral' }
+    : deviceError
+      ? { label: '연결 확인 실패', tone: 'warning' }
+      : device.vehicleConnectionKnown !== true
+        ? { label: '감지 준비 중', tone: 'neutral' }
+        : device.vehicleConnected
+          ? { label: '연결됨', tone: 'primary' }
+          : { label: '연결 해제됨', tone: 'warning' };
 
   const latestCoordinate = latestInfo?.coordinate ?? latest?.place.coordinate ?? null;
   const gps = useDeviceLocation();
@@ -168,9 +165,7 @@ export function HomeScreen() {
         </CoordinateMap>
       }
     >
-      {deviceError && !mockedVehicle ? (
-        <Notice title="기기 연결을 확인해 주세요" description={deviceError} />
-      ) : null}
+      {deviceError ? <Notice title="기기 연결을 확인해 주세요" description={deviceError} /> : null}
       {cancelNotice ? (
         <Pressable onPress={clearCancelNotice} accessibilityHint="안내 닫기">
           <Notice
@@ -182,18 +177,20 @@ export function HomeScreen() {
       ) : null}
 
       <View style={styles.vehicleRow}>
-        <IconTile
-          name="car-outline"
-          background={colors.primaryTint}
-          color={colors.primary}
-          size={48}
-        />
+        <View style={styles.vehicleTile}>
+          <Image
+            source={require('../../../../assets/images/vehicle-sedan.png')}
+            style={styles.vehicleImage}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+        </View>
         <View style={styles.flex}>
           <AppText variant="caption" tone="secondary">
             등록한 차량
           </AppText>
           <AppText variant="subtitle" weight="bold" numberOfLines={1}>
-            {vehicle?.name ?? '블루투스 등록 건너뜀 (목업)'}
+            {vehicle?.name ?? '등록된 차량 없음'}
           </AppText>
         </View>
         <Badge label={connection.label} tone={connection.tone} />
@@ -311,6 +308,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink,
   },
   vehicleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  vehicleTile: {
+    width: 72,
+    height: 48,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryTint,
+  },
+  vehicleImage: { width: 64, height: 22.4 },
   progress: {
     gap: spacing.md,
     padding: spacing.lg,
