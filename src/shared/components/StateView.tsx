@@ -12,6 +12,8 @@ interface StateViewProps {
   description?: string;
   actions?: ReactNode;
   tone?: 'muted' | 'plain';
+  /** 좁은 시트 안에서 스크롤 없이 보이도록 아이콘을 빼고 버튼을 한 줄에 놓는다. */
+  compact?: boolean;
 }
 
 /** 로딩·빈 상태·오류·지역 안내를 같은 틀로 보여준다. */
@@ -22,16 +24,26 @@ export function StateView({
   description,
   actions,
   tone = 'muted',
+  compact = false,
 }: StateViewProps) {
   return (
-    <View style={[styles.box, tone === 'muted' && styles.muted]} accessibilityLiveRegion="polite">
-      <View style={styles.iconWrap}>
-        {loading ? (
+    <View
+      style={[styles.box, compact && styles.compactBox, tone === 'muted' && styles.muted]}
+      accessibilityLiveRegion="polite"
+    >
+      {compact ? (
+        loading ? (
           <ActivityIndicator color={colors.primary} />
-        ) : icon ? (
-          <Icon name={icon} color={colors.textSecondary} size="lg" />
-        ) : null}
-      </View>
+        ) : null
+      ) : (
+        <View style={styles.iconWrap}>
+          {loading ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : icon ? (
+            <Icon name={icon} color={colors.textSecondary} size="lg" />
+          ) : null}
+        </View>
+      )}
       <View style={styles.texts}>
         <AppText variant="subtitle" weight="bold" style={styles.center}>
           {title}
@@ -42,7 +54,9 @@ export function StateView({
           </AppText>
         ) : null}
       </View>
-      {actions ? <View style={styles.actions}>{actions}</View> : null}
+      {actions ? (
+        <View style={[styles.actions, compact && styles.compactActions]}>{actions}</View>
+      ) : null}
     </View>
   );
 }
@@ -55,6 +69,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     borderRadius: radii.md,
   },
+  compactBox: { gap: spacing.md, paddingVertical: spacing.lg, paddingHorizontal: spacing.md },
   muted: { backgroundColor: colors.surfaceMuted },
   iconWrap: {
     width: 56,
@@ -67,4 +82,5 @@ const styles = StyleSheet.create({
   texts: { gap: spacing.xs, alignItems: 'center' },
   center: { textAlign: 'center' },
   actions: { alignSelf: 'stretch', alignItems: 'center', gap: spacing.sm },
+  compactActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center' },
 });
