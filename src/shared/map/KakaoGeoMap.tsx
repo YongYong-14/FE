@@ -5,11 +5,12 @@ import {
   type MapOptions,
   type ShapeScene,
 } from '@react-native-kakao/map';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View, type ViewStyle } from 'react-native';
 
 import { AppText } from '@/shared/components/AppText';
-import { colors, spacing } from '@/shared/theme/tokens';
+import { MapSheetInsetContext } from '@/shared/components/MapBottomSheet';
+import { colors, radii, spacing, touchTarget } from '@/shared/theme/tokens';
 import type { Coordinate } from '@/shared/types/location';
 import { TILE_SIZE, type MapView, type ViewSize } from '@/shared/utils/mercator';
 
@@ -98,6 +99,22 @@ export function KakaoGeoMap({
   /** 카카오 줌 단계로 바꾼 확대 범위. 첫 측정 전에는 SDK 기본값을 쓴다. */
   const [zoomRange, setZoomRange] = useState<MapOptions['zoomRange']>();
   const [mapReady, setMapReady] = useState(false);
+  const sheetInset = Math.round(useContext(MapSheetInsetContext).current / 2);
+  // 지도 아래쪽은 하단 시트가 덮는다(지도는 덮인 높이의 절반만큼 위로 밀려 있다).
+  // 로고가 시트에 가리지 않게 그만큼 올리고,
+  // 오른쪽 아래의 현재 위치 버튼과 겹치지 않게 버튼 너비만큼 왼쪽으로 옮긴다.
+  const options = useMemo<MapOptions>(
+    () => ({
+      ...BASE_OPTIONS,
+      zoomRange,
+      logo: {
+        gravity: 'bottomRight',
+        x: spacing.lg + touchTarget + spacing.sm,
+        y: radii.sheet + spacing.xs + sheetInset,
+      },
+    }),
+    [sheetInset, zoomRange],
+  );
   const mapRef = useRef<KakaoMapViewRef>(null);
   /** 카카오 zoomLevel − 메르카토르 zoom. 멈출 때마다 다시 잰다. */
   const zoomOffset = useRef(0);
@@ -204,7 +221,7 @@ export function KakaoGeoMap({
           ref={mapRef}
           style={StyleSheet.absoluteFill}
           initialCamera={initialCamera}
-          options={{ ...BASE_OPTIONS, zoomRange }}
+          options={options}
           shapes={OUTSIDE_SCENE}
           onMapReady={() => setMapReady(true)}
           onError={() => setSdk('error')}

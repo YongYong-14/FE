@@ -1,4 +1,5 @@
 import {
+  createContext,
   forwardRef,
   useCallback,
   useEffect,
@@ -23,6 +24,13 @@ import { colors, radii, shadows, spacing, touchTarget } from '@/shared/theme/tok
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const heightLabels = ['접힘', '중간', '펼침'] as const;
 
+/**
+ * 시트가 접힌 높이보다 더 덮고 있는 높이(px).
+ * - middle: 기본(중간) 높이일 때. 핀이 모두 보이게 확대 단계를 맞출 때 쓴다.
+ * - current: 지금 멈춰 있는 단계일 때. 지도 로고를 시트 위로 올릴 때 쓴다.
+ */
+export const MapSheetInsetContext = createContext({ middle: 0, current: 0 });
+
 export interface MapBottomSheetHandle {
   /** 접혀 있을 때 내용을 확인할 수 있도록 중간 높이로 펼친다. */
   reveal: () => void;
@@ -34,6 +42,10 @@ interface MapBottomSheetProps {
   mapTools?: ReactNode;
   accessibilityLabel: string;
   collapsedHeight?: number;
+  /** 중간 단계 높이. 없으면 화면 높이의 46%를 쓴다. */
+  middleHeight?: number;
+  /** 펼침 단계에서 상단 정보와 지도를 모두 덮고 화면 끝까지 올린다. */
+  coverScreen?: boolean;
   onCollapse?: () => void;
   children: ReactNode;
 }
@@ -41,7 +53,17 @@ interface MapBottomSheetProps {
 /** 손잡이만 드래그를 처리하고, 시트 내용은 각 화면에서 독립적으로 스크롤한다. */
 export const MapBottomSheet = forwardRef<MapBottomSheetHandle, MapBottomSheetProps>(
   function MapBottomSheet(
-    { map, topBar, mapTools, accessibilityLabel, collapsedHeight = 116, onCollapse, children },
+    {
+      map,
+      topBar,
+      mapTools,
+      accessibilityLabel,
+      collapsedHeight = 116,
+      middleHeight,
+      coverScreen = false,
+      onCollapse,
+      children,
+    },
     ref,
   ) {
     const insets = useSafeAreaInsets();
@@ -60,10 +82,19 @@ export const MapBottomSheet = forwardRef<MapBottomSheetHandle, MapBottomSheetPro
       const headroom = hasTopBar
         ? Math.max(topHeight * 2 + touchTarget, topHeight + toolsHeight + spacing.md * 2)
         : insets.top + toolsHeight + spacing.md * 2;
-      const maximum = Math.max(collapsedHeight, frameHeight - headroom);
+      const maximum = Math.max(collapsedHeight, coverScreen ? frameHeight : frameHeight - headroom);
       const minimum = Math.min(collapsedHeight, maximum);
-      return [minimum, clamp(frameHeight * 0.46, minimum, maximum), maximum];
-    }, [collapsedHeight, frameHeight, hasTopBar, insets.top, toolsHeight, topHeight]);
+      return [minimum, clamp(middleHeight ?? frameHeight * 0.46, minimum, maximum), maximum];
+    }, [
+      collapsedHeight,
+      coverScreen,
+      frameHeight,
+      hasTopBar,
+      insets.top,
+      middleHeight,
+      toolsHeight,
+      topHeight,
+    ]);
 
     useEffect(() => {
       const listener = height.addListener(({ value }) => {
@@ -149,14 +180,63 @@ export const MapBottomSheet = forwardRef<MapBottomSheetHandle, MapBottomSheetPro
       [collapsedHeight, height, snapPoints],
     );
 
+    // 화면 끝까지 올릴 때는 마지막 구간에서 손잡이를 상태 표시줄 아래로 내리고 모서리를 편다.
+    const coverStart = Math.max(1, frameHeight - Math.max(insets.top, radii.sheet));
+    const coverRange = [coverStart, Math.max(coverStart + 1, frameHeight)];
+    const coverStyle = coverScreen
+      ? {
+          paddingTop: height.interpolate({
+            inputRange: coverRange,
+            outputRange: [0, insets.top],
+            extrapolate: 'clamp',
+          }),
+          borderTopLeftRadius: height.interpolate({
+            inputRange: coverRange,
+            outputRange: [radii.sheet, 0],
+            extrapolate: 'clamp',
+          }),
+          borderTopRightRadius: height.interpolate({
+            inputRange: coverRange,
+            outputRange: [radii.sheet, 0],
+            extrapolate: 'clamp',
+          }),
+        }
+      : null;
+
+    const minimumHeight = snapPoints[0] ?? collapsedHeight;
+    const middleCovered = Math.max(0, (snapPoints[1] ?? minimumHeight) - minimumHeight);
+    const currentCovered = Math.max(0, (snapPoints[snapIndex] ?? minimumHeight) - minimumHeight);
+    const sheetInsets = useMemo(
+      () => ({ middle: middleCovered, current: currentCovered }),
+      [middleCovered, currentCovered],
+    );
+
     return (
       <View
         style={styles.root}
         onLayout={(event) => setFrameHeight(event.nativeEvent.layout.height)}
       >
-        <Animated.View style={[styles.map, { bottom: Animated.subtract(height, radii.sheet) }]}>
-          {map}
-        </Animated.View>
+        {/*
+          지도 크기는 시트를 접었을 때 보이는 영역으로 고정한다. 시트를 따라 크기를 바꾸면
+          네이티브 지도가 커진 영역을 다시 그리지 못해 아래쪽이 비어 보인다. 시트는 지도 위를 덮는다.
+        */}
+        {frameHeight > 0 ? (
+          <Animated.View
+            style={[
+              styles.map,
+              {
+                height: frameHeight - minimumHeight + radii.sheet,
+                // 시트가 올라온 높이의 절반만큼 지도를 위로 민다. 지도의 가운데가 항상
+                // 시트 위에 보이는 영역의 가운데에 오고, 크기를 바꾸지 않아 다시 그릴 일이 없다.
+                transform: [
+                  { translateY: Animated.multiply(Animated.subtract(height, minimumHeight), -0.5) },
+                ],
+              },
+            ]}
+          >
+            <MapSheetInsetContext.Provider value={sheetInsets}>{map}</MapSheetInsetContext.Provider>
+          </Animated.View>
+        ) : null}
         {hasTopBar ? (
           <View
             style={styles.topBar}
@@ -182,7 +262,7 @@ export const MapBottomSheet = forwardRef<MapBottomSheetHandle, MapBottomSheetPro
             {mapTools}
           </Animated.View>
         ) : null}
-        <Animated.View style={[styles.sheet, { height }]}>
+        <Animated.View style={[styles.sheet, { height }, coverStyle]}>
           <View
             style={styles.handleArea}
             onStartShouldSetResponderCapture={(event) => {
