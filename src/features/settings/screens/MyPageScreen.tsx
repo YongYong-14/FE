@@ -118,7 +118,7 @@ export function MyPageScreen() {
               등록한 차량
             </AppText>
             <AppText variant="label" weight="bold">
-              {snapshot.vehicle?.name ?? '블루투스 등록 건너뜀 (목업)'}
+              {snapshot.vehicle?.name ?? '등록된 차량 없음'}
             </AppText>
           </View>
           <Button
@@ -133,7 +133,6 @@ export function MyPageScreen() {
         <Group title="설정">
           <Row
             title="재탑승 사후 설문"
-            description="다시 차에 타면 이전 위험 주차의 단속 여부를 물어봐요"
             last
             trailing={
               <Switch
