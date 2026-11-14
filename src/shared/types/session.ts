@@ -52,8 +52,6 @@ export interface SessionSnapshot {
   user: SessionUser | null;
   vehicle: RegisteredVehicle | null;
   onboardingCompleted: boolean;
-  /** 개발 중 화면 확인용. 실제 차량·서버 등록과 구분한다. */
-  vehicleRegistrationMocked?: boolean;
   surveyEnabled: boolean;
   device: DeviceState;
   /** 아직 동의하지 않은 필수 약관. 이전 버전 저장값에는 없다. */
@@ -78,7 +76,6 @@ export function createInitialSession(): SessionSnapshot {
     user: null,
     vehicle: null,
     onboardingCompleted: false,
-    vehicleRegistrationMocked: false,
     surveyEnabled: true,
     device: createInitialDevice(),
     missingAgreements: [],
@@ -95,11 +92,7 @@ export function missingAgreementsOf(snapshot: SessionSnapshot): AgreementType[] 
   return snapshot.missingAgreements ?? [];
 }
 
-export function usesMockVehicleRegistration(snapshot: SessionSnapshot): boolean {
-  return __DEV__ && snapshot.vehicleRegistrationMocked === true && !snapshot.vehicle;
-}
-
-/** 실제 등록 또는 개발용 건너뛰기를 완료했는지. */
+/** 차량 등록을 마쳐 홈으로 들어갈 수 있는지. 등록을 건너뛰는 경로는 없다. */
 export function hasVehicleEntryAccess(snapshot: SessionSnapshot): boolean {
-  return Boolean(snapshot.vehicle) || usesMockVehicleRegistration(snapshot);
+  return Boolean(snapshot.vehicle);
 }

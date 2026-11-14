@@ -18,21 +18,9 @@ import { Screen } from '@/shared/components/Screen';
 import { StateView } from '@/shared/components/StateView';
 import { IconTile } from '@/shared/components/Surface';
 import { InfoRow } from '@/shared/components/InfoRow';
-import type { IconName } from '@/shared/components/Icon';
 import { useAsyncAction } from '@/shared/hooks/useAsyncAction';
 import { colors, radii, spacing } from '@/shared/theme/tokens';
-import type { DeviceKind, PairedDevice } from '@/shared/types/session';
-
-const kindLabel: Record<DeviceKind, string> = {
-  'car-audio': '차량 오디오',
-  earphone: '이어폰',
-  speaker: '스피커',
-};
-const kindIcon: Record<DeviceKind, IconName> = {
-  'car-audio': 'car-outline',
-  earphone: 'headset-outline',
-  speaker: 'volume-high-outline',
-};
+import type { PairedDevice } from '@/shared/types/session';
 
 function DeviceRow({
   vehicle,
@@ -47,9 +35,8 @@ function DeviceRow({
   disabled: boolean;
   onPress: () => void;
 }) {
-  const caption = [vehicle.kind ? kindLabel[vehicle.kind] : null, current ? '현재 등록됨' : null]
-    .filter(Boolean)
-    .join(', ');
+  // 기기 종류(이어폰·스피커 등)는 표시하지 않는다. 이름과 현재 등록 여부만 보여 준다.
+  const caption = current ? '현재 등록됨' : '';
   return (
     <Pressable
       accessibilityRole="radio"
@@ -72,16 +59,7 @@ function DeviceRow({
           {vehicle.name}
         </AppText>
         {caption ? (
-          <InfoRow
-            items={[
-              ...(vehicle.kind
-                ? [{ icon: kindIcon[vehicle.kind], text: kindLabel[vehicle.kind] }]
-                : []),
-              ...(current
-                ? [{ icon: 'checkmark-circle-outline' as const, text: '현재 등록됨' }]
-                : []),
-            ]}
-          />
+          <InfoRow items={[{ icon: 'checkmark-circle-outline', text: '현재 등록됨' }]} />
         ) : null}
       </View>
       <View style={[styles.radio, selected && styles.radioSelected]} />
@@ -96,7 +74,7 @@ function DeviceRow({
  */
 export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => void }) {
   const router = useRouter();
-  const { snapshot, registerVehicle, skipVehicleRegistration, isSaving } = useSession();
+  const { snapshot, registerVehicle, isSaving } = useSession();
   const isChange = Boolean(snapshot.vehicle);
   const [vehicles, setVehicles] = useState<PairedDevice[]>([]);
   const currentAddress = snapshot.vehicle?.bluetoothAddress ?? null;
@@ -180,19 +158,6 @@ export function VehicleRegistrationScreen({ onComplete }: { onComplete?: () => v
               })
             }
           />
-          {__DEV__ && !isChange ? (
-            <Button
-              label="블루투스 등록 건너뛰기 (목업)"
-              variant="outline"
-              disabled={busy}
-              onPress={() =>
-                void run(async () => {
-                  await skipVehicleRegistration();
-                  onComplete?.();
-                })
-              }
-            />
-          ) : null}
         </>
       }
     >

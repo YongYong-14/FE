@@ -37,7 +37,6 @@ interface SessionContextValue {
   completeOnboarding: (device?: Partial<DeviceState>) => Promise<void>;
   registerVehicle: (vehicle: RegisteredVehicle) => Promise<void>;
   /** 서버 등록 없이 개발 중 차량 등록 화면만 건너뛴다. */
-  skipVehicleRegistration: () => Promise<void>;
   /** 서버의 활성 차량으로 맞춘다(GET /vehicle). */
   syncVehicle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -191,7 +190,6 @@ export function SessionProvider({ children }: PropsWithChildren) {
         missingAgreements: result.missingAgreements,
         ownerId: result.user.id,
         onboardingCompleted: sameOwner ? previous.onboardingCompleted : false,
-        vehicleRegistrationMocked: false,
         vehicle:
           vehicle !== undefined
             ? mergeVehicle(vehicle, sameOwner ? previous.vehicle : null)
@@ -233,7 +231,6 @@ export function SessionProvider({ children }: PropsWithChildren) {
       ...previous,
       user: null,
       missingAgreements: [],
-      vehicleRegistrationMocked: false,
     }));
   }, [commit]);
 
@@ -276,7 +273,6 @@ export function SessionProvider({ children }: PropsWithChildren) {
         commit((previous) => ({
           ...previous,
           vehicle,
-          vehicleRegistrationMocked: false,
           ownerId: previous.user?.id ?? previous.ownerId ?? null,
           device: {
             ...previous.device,
@@ -284,10 +280,6 @@ export function SessionProvider({ children }: PropsWithChildren) {
             vehicleConnectionKnown: false,
           },
         })),
-      skipVehicleRegistration: async () => {
-        if (!__DEV__) throw new Error('개발 빌드에서만 사용할 수 있어요.');
-        await commit((previous) => ({ ...previous, vehicleRegistrationMocked: true }));
-      },
       syncVehicle,
       signOut,
       withdraw,
