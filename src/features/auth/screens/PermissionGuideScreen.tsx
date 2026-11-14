@@ -10,54 +10,66 @@ import {
 } from '@/services/device/location';
 import { AppModal } from '@/shared/components/AppModal';
 import { AppText } from '@/shared/components/AppText';
-import { Badge, type BadgeTone } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
 import { IconButton } from '@/shared/components/IconButton';
-import type { IconName } from '@/shared/components/Icon';
+import { Icon, type IconName } from '@/shared/components/Icon';
 import { Notice } from '@/shared/components/Notice';
 import { Screen } from '@/shared/components/Screen';
-import { IconTile } from '@/shared/components/Surface';
 import { useAsyncAction } from '@/shared/hooks/useAsyncAction';
-import { colors, radii, spacing } from '@/shared/theme/tokens';
+import { colors, iconSize, radii, spacing, touchTarget } from '@/shared/theme/tokens';
 import { useSession } from '../state/SessionProvider';
 
-function PermissionCard({
+type PermissionState = 'granted' | 'partial' | 'none';
+
+/** 권한 한 줄. 카드·색 타일 없이 목록으로 보여 주고 상태는 오른쪽 끝에만 표시한다. */
+function PermissionRow({
   icon,
-  tint,
   title,
   description,
-  status,
+  state,
+  stateLabel,
   onPress,
   disabled,
 }: {
   icon: IconName;
-  tint: string;
   title: string;
   description: string;
-  status: { label: string; tone: BadgeTone };
+  state: PermissionState;
+  /** 허용 전에는 화살표만 보여 주고, 읽어 주는 문구로만 쓴다. */
+  stateLabel: string;
   onPress: () => void;
   disabled: boolean;
 }) {
   return (
     <Pressable
-      style={styles.card}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
-      accessibilityLabel={`${title}, ${status.label}. ${description}`}
+      accessibilityLabel={`${title}, ${stateLabel}. ${description}`}
     >
-      <IconTile name={icon} size={48} background={tint} />
-      <View style={styles.cardTexts}>
-        <View style={styles.cardHead}>
-          <AppText variant="label" weight="bold">
-            {title}
-          </AppText>
-          <Badge label={status.label} tone={status.tone} size="sm" />
-        </View>
-        <AppText variant="micro" tone="secondary">
+      <View style={styles.rowIcon}>
+        <Icon name={icon} size={iconSize.md} color={colors.ink} />
+      </View>
+      <View style={styles.rowTexts}>
+        <AppText variant="body" weight="bold">
+          {title}
+        </AppText>
+        <AppText variant="caption" tone="secondary">
           {description}
         </AppText>
       </View>
+      {state === 'none' ? (
+        <Icon name="chevron-forward" size={iconSize.sm} color={colors.textSecondary} />
+      ) : (
+        <AppText
+          variant="caption"
+          weight="bold"
+          style={{ color: state === 'granted' ? colors.primary : colors.warningText }}
+        >
+          {stateLabel}
+        </AppText>
+      )}
     </Pressable>
   );
 }
@@ -121,12 +133,12 @@ export function PermissionGuideScreen({
     else await finish();
   };
   const device = snapshot.device;
-  const locationStatus: { label: string; tone: BadgeTone } =
+  const locationState: PermissionState =
     device.locationPermission === 'always'
-      ? { label: '허용됨', tone: 'success' }
+      ? 'granted'
       : device.locationPermission === 'foreground'
-        ? { label: '사용 중에만', tone: 'warning' }
-        : { label: '필수', tone: 'neutral' };
+        ? 'partial'
+        : 'none';
 
   return (
     <Screen
@@ -158,42 +170,49 @@ export function PermissionGuideScreen({
       <AppText variant="title" weight="black" accessibilityRole="header">
         주차를 감지하려면{'\n'}권한이 필요해요
       </AppText>
-      <AppText variant="caption" tone="secondary">
-        앱을 닫아도 감지하려면 위치 권한을 ‘항상 허용’으로 설정해야 해요.
-      </AppText>
-      <View style={styles.list}>
-        <PermissionCard
+      <View>
+        <AppText variant="caption" weight="bold" tone="secondary" style={styles.section}>
+          필수 권한
+        </AppText>
+        <PermissionRow
           icon="location-outline"
-          tint={colors.primary}
-          title="위치 항상 허용"
-          description="앱을 닫았을 때도 주차 위치를 확인해요"
-          status={locationStatus}
+          title="위치"
+          description="앱을 닫아도 주차 위치를 확인해요"
+          state={locationState}
+          stateLabel={
+            locationState === 'granted'
+              ? '항상 허용'
+              : locationState === 'partial'
+                ? '사용 중에만'
+                : '허용 안 됨'
+          }
           disabled={busy}
           onPress={() => void run(nativeBluetooth.openAppSettings)}
         />
-        <PermissionCard
+        <View style={styles.divider} />
+        <PermissionRow
           icon="bluetooth"
-          tint={colors.bluetooth}
-          title="블루투스"
-          description="차량과 연결이 끊기는 순간을 알아채요"
-          status={
-            device.bluetoothPermission === 'granted'
-              ? { label: '허용됨', tone: 'success' }
-              : { label: '필수', tone: 'neutral' }
-          }
+          title="근처 기기"
+          description="차량과 연결이 끊기는 순간을 감지해요"
+          state={device.bluetoothPermission === 'granted' ? 'granted' : 'none'}
+          stateLabel={device.bluetoothPermission === 'granted' ? '허용됨' : '허용 안 됨'}
           disabled={busy}
           onPress={() => void run(nativeBluetooth.openAppSettings)}
         />
-        <PermissionCard
+        <AppText
+          variant="caption"
+          weight="bold"
+          tone="secondary"
+          style={[styles.section, styles.sectionGap]}
+        >
+          선택 권한
+        </AppText>
+        <PermissionRow
           icon="notifications-outline"
-          tint={colors.warning}
           title="알림"
-          description="앱을 닫았을 때 주차를 감지하면 위치 확인을 알려요"
-          status={
-            notification === 'granted'
-              ? { label: '허용됨', tone: 'success' }
-              : { label: '선택', tone: 'neutral' }
-          }
+          description="주차를 감지하면 위치 확인 알림을 보내요"
+          state={notification === 'granted' ? 'granted' : 'none'}
+          stateLabel={notification === 'granted' ? '허용됨' : '허용 안 됨'}
           disabled={busy}
           onPress={() =>
             void run(async () => {
@@ -204,16 +223,21 @@ export function PermissionGuideScreen({
             })
           }
         />
-        <PermissionCard
+        <View style={styles.divider} />
+        <PermissionRow
           icon="battery-charging-outline"
-          tint={colors.sage}
-          title="배터리 최적화 예외"
-          description="백그라운드 감지가 꺼지지 않게 해요"
-          status={{ label: '선택', tone: 'neutral' }}
+          title="배터리 사용 제한 해제"
+          description="백그라운드 감지가 중단되지 않게 해요"
+          state="none"
+          stateLabel="설정에서 변경"
           disabled={busy}
           onPress={() => void run(nativeBluetooth.openBatterySettings)}
         />
       </View>
+      <AppText variant="micro" tone="secondary">
+        선택 권한은 허용하지 않아도 앱을 이용할 수 있어요. 권한은 휴대폰 설정에서 언제든 바꿀 수
+        있어요.
+      </AppText>
       <AppModal visible={backgroundGuide} onBackPress={() => setBackgroundGuide(false)}>
         <AppText variant="subtitle" weight="bold">
           위치 권한을 항상 허용해 주세요
@@ -247,19 +271,34 @@ export function PermissionGuideScreen({
   );
 }
 
+const ROW_ICON = 40;
+
 const styles = StyleSheet.create({
-  content: { paddingTop: 48, gap: spacing.xxl },
+  content: { paddingTop: spacing.xxxl, paddingBottom: spacing.lg, gap: spacing.xl },
   footer: { gap: spacing.sm },
-  nav: { marginTop: -spacing.xxxl, marginLeft: -spacing.md },
-  list: { gap: spacing.xxl, marginRight: spacing.xxl },
-  card: {
+  nav: { marginTop: -spacing.xl, marginLeft: -spacing.md },
+  section: { paddingBottom: spacing.xs },
+  sectionGap: { paddingTop: spacing.xl },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    padding: spacing.lg,
-    borderRadius: radii.md,
+    minHeight: touchTarget,
+    paddingVertical: spacing.md,
+  },
+  rowPressed: { opacity: 0.6 },
+  rowIcon: {
+    width: ROW_ICON,
+    height: ROW_ICON,
+    borderRadius: radii.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.surfaceMuted,
   },
-  cardTexts: { flex: 1, gap: spacing.xs },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  rowTexts: { flex: 1 },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: ROW_ICON + spacing.md,
+    backgroundColor: colors.line,
+  },
 });
