@@ -45,6 +45,44 @@ function fromWorld(x: number, y: number, zoom: number): Coordinate {
   };
 }
 
+/**
+ * 첫 좌표를 보이는 영역의 가운데에 둔 채, 나머지 좌표가 모두 화면 안(여백 제외)에 들어오는
+ * 가장 큰 정수 확대 단계를 고른다. 어느 단계에서도 다 들어오지 않으면 가장 넓은 단계를 쓴다.
+ */
+export function fitView(
+  points: Coordinate[],
+  size: ViewSize,
+  options: {
+    minZoom: number;
+    maxZoom: number;
+    padding: { top: number; right: number; bottom: number; left: number };
+  },
+): MapView {
+  const { minZoom, maxZoom, padding } = options;
+  const origin = points[0];
+  if (!origin) throw new Error('fitView needs at least one point');
+  const lowest = Math.ceil(minZoom);
+  const halfWidth = size.width / 2;
+  const halfHeight = size.height / 2;
+  let zoom = Math.floor(maxZoom);
+  for (; zoom > lowest; zoom -= 1) {
+    const center = toWorld(origin, zoom);
+    const fits = points.every((point) => {
+      const world = toWorld(point, zoom);
+      const dx = world.x - center.x;
+      const dy = world.y - center.y;
+      return (
+        dx >= -(halfWidth - padding.left) &&
+        dx <= halfWidth - padding.right &&
+        dy >= -(halfHeight - padding.top) &&
+        dy <= halfHeight - padding.bottom
+      );
+    });
+    if (fits) break;
+  }
+  return { center: origin, zoom };
+}
+
 export interface Projector {
   size: ViewSize;
   /** 화면에 보이는 범위. */
