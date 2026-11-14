@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="112" viewBox="0 32 320 112">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.45" stop-color="#f1f4f8"/>
+      <stop offset="0.75" stop-color="#d5dbe4"/>
+      <stop offset="1" stop-color="#b3bcc9"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b6b80"/>
+      <stop offset="0.5" stop-color="#2b3644"/>
+      <stop offset="1" stop-color="#1a222d"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="rim" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#f4f6f9"/>
+      <stop offset="0.7" stop-color="#aab2be"/>
+      <stop offset="1" stop-color="#7c8592"/>
+    </radialGradient>
+    <linearGradient id="sill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a424d"/>
+      <stop offset="1" stop-color="#1d232b"/>
+    </linearGradient>
+    <filter id="blur" x="-20%" y="-200%" width="140%" height="500%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <clipPath id="bodyClip"><path d="M20 110 C18 99 20 90 28 85 L60 77 C84 57 108 47 142 45 L168 45 C190 46 208 54 228 70
+       C254 73 282 78 298 87 C305 92 307 101 305 110 L302 119 L261.6 119
+       A26.5 26.5 0 0 0 210.4 119 L113.6 119 A26.5 26.5 0 0 0 62.4 119 L24 119 Z"/></clipPath>
+    <g id="wheel">
+      <circle r="25" fill="#16191d"/>
+      <circle r="24" fill="none" stroke="#2c3138" stroke-width="2"/>
+      <circle r="16.5" fill="url(#rim)"/>
+      <g stroke="#59616d" stroke-width="3.4" stroke-linecap="round">
+        <line x1="0" y1="-4" x2="0" y2="-15"/>
+        <line x1="3.8" y1="-1.2" x2="14.3" y2="-4.6"/>
+        <line x1="2.4" y1="3.2" x2="8.8" y2="12.1"/>
+        <line x1="-2.4" y1="3.2" x2="-8.8" y2="12.1"/>
+        <line x1="-3.8" y1="-1.2" x2="-14.3" y2="-4.6"/>
+      </g>
+      <circle r="4.5" fill="#e9edf2" stroke="#6c7480" stroke-width="1"/>
+    </g>
+  </defs>
+
+  <ellipse cx="162" cy="135" rx="138" ry="6" fill="#000000" opacity="0.28" filter="url(#blur)"/>
+
+  <!-- 휠 하우스 -->
+  <circle cx="88" cy="112" r="26" fill="#0f1215"/>
+  <circle cx="236" cy="112" r="26" fill="#0f1215"/>
+
+  <!-- 차체 -->
+  <path fill="url(#body)" stroke="#9aa4b1" stroke-width="1"
+    d="M20 110 C18 99 20 90 28 85 L60 77 C84 57 108 47 142 45 L168 45 C190 46 208 54 228 70
+       C254 73 282 78 298 87 C305 92 307 101 305 110 L302 119 L261.6 119
+       A26.5 26.5 0 0 0 210.4 119 L113.6 119 A26.5 26.5 0 0 0 62.4 119 L24 119 Z"/>
+
+  <g clip-path="url(#bodyClip)">
+    <!-- 하단 사이드 스커트·범퍼 -->
+    <rect x="10" y="113" width="300" height="8" fill="url(#sill)"/>
+    <!-- 헤드램프·테일램프 -->
+    <path fill="#e9f6ff" stroke="#8aa0b4" stroke-width="0.8" d="M270 81 C284 82 296 86 306 93 L290 92 C283 88 277 85 270 81 Z"/>
+    <path fill="#d93636" d="M14 84 L48 79 L50 85 L16 92 Z"/>
+    <path fill="#ff9b9b" opacity="0.65" d="M18 86 L46 81.4 L46.6 83 L18.6 87.8 Z"/>
+    <!-- 차체 아래쪽 음영 -->
+    <path fill="#7f8a99" opacity="0.18" d="M10 100 C100 108 220 108 310 100 L310 113 L10 113 Z"/>
+  </g>
+
+  <!-- 유리 -->
+  <path fill="url(#glass)"
+    d="M80 75 C98 60 118 53 143 51 L167 51 C185 52 199 58 214 71 Z"/>
+  <!-- B 필러 -->
+  <path fill="#11151a" d="M147 51 L153 51 L155 73 L148 74 Z"/>
+  <!-- 유리 반사 -->
+  <path fill="#ffffff" opacity="0.16" d="M102 65 C114 58 126 55 139 54 L130 73 L94 74 Z"/>
+  <path fill="#ffffff" opacity="0.12" d="M160 53 L170 53 C180 54 189 58 197 63 L178 72 L163 73 Z"/>
+
+  <!-- 캐릭터 라인과 문 분할선 -->
+  <path fill="none" stroke="url(#shine)" stroke-width="2" d="M50 86 C120 82 220 84 292 91"/>
+  <path fill="none" stroke="#8d97a5" stroke-width="1" opacity="0.7"
+    d="M151 74 C150 90 151 104 153 113 M215 72 C219 87 217 102 211 113 M114 75 C107 87 107 100 115 113"/>
+
+  <!-- 문 손잡이 -->
+  <rect x="125" y="81" width="13" height="3" rx="1.5" fill="#aeb7c3"/>
+  <rect x="186" y="81.5" width="13" height="3" rx="1.5" fill="#aeb7c3"/>
+
+  <!-- 사이드 미러 -->
+  <path fill="#eef1f5" stroke="#8d97a5" stroke-width="1" d="M209 72 C209 66 216 64 222 67 L224 73 Z"/>
+
+  <use href="#wheel" x="88" y="112" transform="translate(88 112) scale(0.88) translate(-88 -112)"/>
+  <use href="#wheel" x="236" y="112" transform="translate(236 112) scale(0.88) translate(-236 -112)"/>
+</svg>
