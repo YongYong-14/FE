@@ -69,7 +69,7 @@ export interface AnalysisReport {
   status: AnalysisStatus;
   /** 사용자 횡단보도 응답으로 적용한 1단계는 서버 실측 판정과 구분한다. */
   source?: 'server' | 'user-crosswalk';
-  /** 배지 문구. 예: "1단계 소화전 주변" */
+  /** 배지 문구. 예: "소화전 주변 금지 구역" */
   badge: string;
   headline: string;
   summary?: string;
@@ -123,14 +123,14 @@ export interface LatestParking {
 
 /** 3단계 결과의 공통 표시 문구. 저장된 이전 리포트에도 적용한다. */
 export const noRiskFoundCopy = {
-  badge: '위험 정보 없음',
-  headline: '위험 정보가 없어요',
-  summary: '이 위치에서 주차 금지 시설 근접이나 신고 집중 위험이 확인되지 않았어요.',
+  badge: '주의 구역 아님',
+  headline: '주의 구역이 아니에요',
+  summary: '이 위치는 주정차 금지 구역이나 신고 다발 구역에 해당하지 않아요.',
 } as const;
 
 export const analysisStatusLabel: Record<AnalysisStatus, string> = {
-  'level-1': '1단계',
-  'level-2': '2단계',
+  'level-1': '금지 구역',
+  'level-2': '신고 다발',
   'no-risk-found': noRiskFoundCopy.badge,
   'insufficient-data': '판단 불가',
   failed: '분석 실패',

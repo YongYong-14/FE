@@ -5,6 +5,15 @@ import { noRiskFoundCopy, type ParkingRecord } from '@/shared/types/parking';
 import { storageGeneration, storageKeys } from './keys';
 import { withCrosswalkDecision } from '@/shared/utils/crosswalk';
 
+/** 예전 기록의 "1단계 소화전 주변"·"2단계 신고 다발 구역" 배지를 지금 문구로 바꾼다. */
+function currentBadge(badge: string): string {
+  // 저장 형식이 다른 오래된 기록은 그대로 둔다.
+  if (typeof badge !== 'string') return badge;
+  const legacy = /^1단계 (.+) 주변$/.exec(badge);
+  if (legacy) return legacy[1] === '금지 시설' ? '주정차 금지 구역' : `${legacy[1]} 주변 금지 구역`;
+  return badge.replace(/^2단계 /, '');
+}
+
 // 주차 기록 저장 모듈(최소 구현).
 // 기록 화면 담당(팀원2)이 필터·조회를 확장할 수 있도록 공개 함수만 제공한다.
 
@@ -35,7 +44,7 @@ export async function listRecords(): Promise<ParkingRecord[]> {
       .map((record) =>
         record.report.status === 'no-risk-found'
           ? { ...record, report: { ...record.report, ...noRiskFoundCopy } }
-          : record,
+          : { ...record, report: { ...record.report, badge: currentBadge(record.report.badge) } },
       )
       .sort((a, b) => Date.parse(b.parkedAt) - Date.parse(a.parkedAt))
   );

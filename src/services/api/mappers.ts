@@ -209,7 +209,7 @@ export function buildReport(
       return {
         ...base,
         status,
-        badge: `1단계 ${zone} 주변`,
+        badge: zone === '금지 시설' ? '주정차 금지 구역' : `${zone} 주변 금지 구역`,
         headline: `${zone} 주변이에요`,
         evidence: [...evidence, ...crosswalk],
         stats: [...fine, ...reportStat],
@@ -233,7 +233,7 @@ export function buildReport(
           value: `상위 ${formatPercent(stats.topPercent)}`,
         });
       }
-      evidence.push({ label: '2단계 기준', value: '상위 10% 이내' });
+      evidence.push({ label: '신고 다발 기준', value: '상위 10% 이내' });
       const fine =
         assessment.referenceFineAmount !== null
           ? [
@@ -246,7 +246,7 @@ export function buildReport(
       return {
         ...base,
         status,
-        badge: '2단계 신고 다발 구역',
+        badge: '신고 다발 구역',
         headline: '신고가 잦은 곳이에요',
         evidence: [...evidence, ...crosswalk],
         stats: [...reportStat, ...fine],

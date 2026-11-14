@@ -301,7 +301,7 @@ test('1단계 리포트는 시설 이름·거리·금지 거리·GPS 오차·과
     context('no'),
   );
   assert.equal(value.status, 'level-1');
-  assert.equal(value.badge, '1단계 소화전 주변');
+  assert.equal(value.badge, '소화전 주변 금지 구역');
   assert.equal(value.headline, '소화전 주변이에요');
   assert.equal(find(value.evidence, '소화전까지 거리'), '3.2m');
   assert.equal(find(value.evidence, '주정차 금지 거리'), '5m 이내');
@@ -317,7 +317,7 @@ test('1단계 리포트는 서버가 주지 않은 거리·과태료를 만들�
     assessment({ level: 1, primaryZoneType: 'BUS_STOP', stats: null, reasons: [] }),
     context(),
   );
-  assert.equal(value.badge, '1단계 버스정류소 주변');
+  assert.equal(value.badge, '버스정류소 주변 금지 구역');
   assert.deepEqual(value.evidence, []);
   assert.deepEqual(value.stats, []);
   assert.equal(value.zoneLabel, '금지 구역');
@@ -342,10 +342,10 @@ test('2단계 리포트는 주차 시각의 요일·시간대 집중도와 신�
     context('no'),
   );
   assert.equal(value.status, 'level-2');
-  assert.equal(value.badge, '2단계 신고 다발 구역');
+  assert.equal(value.badge, '신고 다발 구역');
   assert.equal(value.headline, '신고가 잦은 곳이에요');
   assert.equal(find(value.evidence, '목요일 9~12시 신고 집중도'), '상위 4.3%');
-  assert.equal(find(value.evidence, '2단계 기준'), '상위 10% 이내');
+  assert.equal(find(value.evidence, '신고 다발 기준'), '상위 10% 이내');
   assert.equal(find(value.evidence, '횡단보도 10m 이내 (직접 응답)'), '아니요');
   assert.equal(find(value.stats, '반경 50m 신고 (2025년 1~9월)'), '1,234건');
   assert.equal(find(value.stats, '예상 과태료 (금지 구역이라면)'), '4만 원');
@@ -357,7 +357,7 @@ test('2단계 리포트는 주차 시각의 요일·시간대 집중도와 신�
 test('2단계 리포트는 집중도·과태료·시간대 자료가 없으면 해당 항목을 비움', () => {
   const value = buildReport(assessment({ level: 2, stats: null }), context());
   assert.equal(value.status, 'level-2');
-  assert.deepEqual(value.evidence, [{ label: '2단계 기준', value: '상위 10% 이내' }]);
+  assert.deepEqual(value.evidence, [{ label: '신고 다발 기준', value: '상위 10% 이내' }]);
   assert.deepEqual(value.stats, []);
   assert.equal(value.chart, undefined);
 });

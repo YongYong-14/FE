@@ -23,7 +23,7 @@ export function withCrosswalkEvidence(
     ...report,
     status: 'level-1',
     source: 'user-crosswalk',
-    badge: '1단계 횡단보도 주변',
+    badge: '횡단보도 주변 금지 구역',
     headline: '횡단보도 주변이에요',
     summary: '횡단보도 위 또는 10m 이내에 주차했다고 알려주셨어요.',
     evidence,
