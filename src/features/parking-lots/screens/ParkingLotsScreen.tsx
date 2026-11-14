@@ -10,7 +10,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ParkingLotSortDropdown } from '../components/ParkingLotSortDropdown';
 import { ParkingLotCard } from '../components/ParkingLotCard';
@@ -26,11 +26,16 @@ import { StateView } from '@/shared/components/StateView';
 import { MapBottomSheet, type MapBottomSheetHandle } from '@/shared/components/MapBottomSheet';
 import { CoordinateMap } from '@/shared/map/CoordinateMap';
 import { LotPin } from '@/shared/map/MapMarkers';
-import { colors, radii, shadows, spacing } from '@/shared/theme/tokens';
+import { colors, radii, shadows, spacing, touchTarget } from '@/shared/theme/tokens';
 import type { ParkingLot } from '@/shared/types/map';
 
 type Radius = 500 | 1000;
 type LoadError = 'consent' | 'failed' | null;
+
+// 시트 손잡이 + 반경·정렬 줄 + 필터 줄. 접힘에서는 여기까지, 중간에서는 주차장 두 곳까지 보인다.
+const SHEET_HEADER_HEIGHT = touchTarget + touchTarget + spacing.md + 36 + spacing.md;
+/** 접힌 주차장 한 줄의 높이(ParkingLotCard의 최소 높이 + 위아래 여백). */
+const LOT_ROW_HEIGHT = 96;
 
 const distanceText = (lot: ParkingLot) => `${Math.round(lot.distanceMeters)}m`;
 function Chip({
@@ -102,10 +107,13 @@ export function ParkingLotsScreen() {
   const [radius, setRadius] = useState<Radius>(500);
   const [openOnly, setOpenOnly] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [recenterKey, setRecenterKey] = useState(0);
   useFocusEffect(
     useCallback(() => {
       const refreshTime = () => setNow(Date.now());
       refreshTime();
+      // 탭에 들어올 때마다 지도를 기준 위치 가운데로 되돌린다. 그 뒤 사용자가 옮긴 위치는 유지한다.
+      setRecenterKey((key) => key + 1);
       const timer = setInterval(refreshTime, 30_000);
       const listener = AppState.addEventListener('change', (state) => {
         if (state === 'active') refreshTime();
@@ -120,13 +128,17 @@ export function ParkingLotsScreen() {
   const [paidOnly, setPaidOnly] = useState(false);
   const [sort, setSort] = useState<ParkingLotSort>('distance');
   const [lots, setLots] = useState<ParkingLot[]>([]);
-  const [expanded, setExpanded] = useState(false);
+  /** 500m에 없어 서버가 1km까지 넓혀 찾은 주차장 수. 500m 빈 화면의 안내에만 쓴다. */
+  const [widerCount, setWiderCount] = useState<number | null>(null);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [error, setError] = useState<LoadError>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  /** 접힌 상태의 첫 두 주차장 줄 높이와, 안내 문구만 있을 때의 내용 높이. 시트 기본 높이를 여기에 맞춘다. */
+  const [rowHeights, setRowHeights] = useState<[number, number]>([LOT_ROW_HEIGHT, LOT_ROW_HEIGHT]);
+  const [noticeHeight, setNoticeHeight] = useState(LOT_ROW_HEIGHT * 2);
   const { latitude, longitude } = origin;
   const requestKey = `${latitude},${longitude},${radius},${reloadKey}`;
 
@@ -137,8 +149,11 @@ export function ParkingLotsScreen() {
       .search({ latitude, longitude }, radius)
       .then((result) => {
         if (!active) return;
-        setLots(result.lots);
-        setExpanded(result.expanded);
+        // 서버는 500m에 없으면 1km까지 넓혀 돌려준다. 500m를 고른 화면에는 500m 안의 결과만 보여 준다.
+        setLots(
+          radius === 500 ? result.lots.filter((lot) => lot.distanceMeters <= 500) : result.lots,
+        );
+        setWiderCount(radius === 500 && result.expanded ? result.lots.length : null);
         setError(null);
         setLoadedKey(requestKey);
       })
@@ -153,7 +168,6 @@ export function ParkingLotsScreen() {
   }, [latitude, longitude, radius, requestKey, missingLocation]);
 
   const loading = loadedKey !== requestKey;
-  const effectiveRadius: Radius = expanded ? 1000 : radius;
   const visible = useMemo(
     () =>
       sortParkingLots(
@@ -202,17 +216,27 @@ export function ParkingLotsScreen() {
     setExpandedId(null);
   }
 
+  // 기본 높이에서는 주차장 두 곳이 잘리지 않고 보이고, 더 있으면 목록을 내려서 본다.
+  const showingLots = !missingLocation && !loading && !error && visible.length > 0;
+  const listPeek = showingLots
+    ? rowHeights[0] + (visible.length > 1 ? rowHeights[1] : 0)
+    : noticeHeight + spacing.xl;
+
   return (
     <View style={styles.root}>
       <MapBottomSheet
         ref={sheet}
         accessibilityLabel="주변 주차장 패널 높이"
-        collapsedHeight={160}
+        collapsedHeight={SHEET_HEADER_HEIGHT}
+        middleHeight={SHEET_HEADER_HEIGHT + listPeek}
+        coverScreen
         onCollapse={() => list.current?.scrollTo({ y: 0, animated: false })}
         map={
           <CoordinateMap
             coordinate={missingLocation ? null : origin}
-            zoom={effectiveRadius === 500 ? 16 : 15}
+            zoom={radius === 500 ? 16 : 15}
+            fit={showingLots ? visible.map((lot) => lot.coordinate) : undefined}
+            recenterKey={recenterKey}
           >
             {(projector) =>
               !missingLocation && !loading && !error
@@ -239,33 +263,28 @@ export function ParkingLotsScreen() {
             }
           </CoordinateMap>
         }
-        topBar={
-          <SafeAreaView
-            edges={['top', 'left', 'right']}
-            style={styles.top}
-            pointerEvents="box-none"
-          >
-            <View style={styles.basis}>
-              <View style={styles.basisDot} />
-              <AppText variant="label" weight="bold" numberOfLines={1}>
-                {parkedAt ? '내 차 주차 위치 기준' : '현재 위치 기준'}
-              </AppText>
-              <AppText variant="label" tone="secondary">
-                반경 {effectiveRadius === 500 ? '500m' : '1km'}
-              </AppText>
-            </View>
-          </SafeAreaView>
-        }
       >
         <View style={styles.sheetContent}>
           <View style={[styles.headerRow, safeHorizontalPadding]}>
-            <AppText variant="heading" weight="black" style={styles.flex}>
-              {loading
-                ? '주차장을 찾고 있어요'
-                : visible.length > 0
-                  ? `근처 주차장 ${visible.length}곳`
-                  : '근처에 주차장이 없어요'}
-            </AppText>
+            <View style={styles.segment} accessibilityRole="radiogroup">
+              {([500, 1000] as const).map((value) => (
+                <Pressable
+                  key={value}
+                  onPress={() => changeRadius(value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: radius === value }}
+                  style={[styles.segmentItem, radius === value && styles.segmentSelected]}
+                >
+                  <AppText
+                    variant="label"
+                    weight="bold"
+                    style={{ color: radius === value ? colors.ink : colors.textSecondary }}
+                  >
+                    {value === 500 ? '500m' : '1km'}
+                  </AppText>
+                </Pressable>
+              ))}
+            </View>
             <ParkingLotSortDropdown
               value={sort}
               onChange={(next) => {
@@ -285,25 +304,6 @@ export function ParkingLotsScreen() {
             contentContainerStyle={[styles.chips, safeHorizontalPadding]}
             style={styles.chipScroll}
           >
-            <View style={styles.segment} accessibilityRole="radiogroup">
-              {([500, 1000] as const).map((value) => (
-                <Pressable
-                  key={value}
-                  onPress={() => changeRadius(value)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: effectiveRadius === value }}
-                  style={[styles.segmentItem, effectiveRadius === value && styles.segmentSelected]}
-                >
-                  <AppText
-                    variant="label"
-                    weight="bold"
-                    style={{ color: effectiveRadius === value ? colors.ink : colors.textSecondary }}
-                  >
-                    {value === 500 ? '500m' : '1km'}
-                  </AppText>
-                </Pressable>
-              ))}
-            </View>
             <Chip
               label="운영 중"
               selected={openOnly}
@@ -338,6 +338,7 @@ export function ParkingLotsScreen() {
             style={styles.list}
             contentContainerStyle={[styles.listContent, safeHorizontalPadding]}
             onContentSizeChange={scrollToPinnedLot}
+            persistentScrollbar
             onScrollBeginDrag={() => {
               pendingPinId.current = null;
             }}
@@ -345,123 +346,147 @@ export function ParkingLotsScreen() {
               pendingPinId.current = null;
             }}
           >
-            {missingLocation ? (
-              <StateView
-                loading={gps.loading}
-                icon="location-outline"
-                title={gps.loading ? '현재 위치를 확인하고 있어요' : '현재 위치를 확인해 주세요'}
-                description={gps.error ?? '위치 권한과 휴대폰 GPS를 확인해 주세요.'}
-                actions={
-                  <Button
-                    label="위치 다시 확인"
-                    variant="outline"
-                    size="md"
-                    onPress={() => void gps.refresh()}
-                  />
-                }
-              />
-            ) : loading ? (
-              <View style={styles.loading}>
-                <ActivityIndicator color={colors.primary} />
-              </View>
-            ) : error === 'consent' ? (
-              <StateView
-                icon="location-outline"
-                title="위치기반서비스 동의가 필요해요"
-                description="주변 주차장을 찾으려면 위치기반서비스 이용약관에 동의해 주세요."
-                actions={
-                  <Button
-                    label="동의하러 가기"
-                    size="md"
-                    onPress={() => void requireAgreement('LOCATION_SERVICE')}
-                  />
-                }
-              />
-            ) : error ? (
-              <StateView
-                icon="alert-circle-outline"
-                title="주차장을 불러오지 못했어요"
-                description="잠시 후 다시 시도해 주세요."
-                actions={
-                  <Button
-                    label="다시 시도"
-                    variant="outline"
-                    size="md"
-                    onPress={() => setReloadKey((key) => key + 1)}
-                  />
-                }
-              />
-            ) : visible.length === 0 ? (
-              effectiveRadius === 500 ? (
-                <StateView
-                  icon="car-outline"
-                  title="500m 안에 조건에 맞는 주차장이 없어요"
-                  description="반경을 1km로 넓혀 다시 찾아볼까요?"
-                  actions={
-                    <>
-                      {filtered && lots.length > 0 ? (
-                        <Button label="필터 초기화" size="md" onPress={resetFilters} />
-                      ) : null}
+            {!showingLots ? (
+              <View onLayout={(event) => setNoticeHeight(event.nativeEvent.layout.height)}>
+                {missingLocation ? (
+                  <StateView
+                    compact
+                    loading={gps.loading}
+                    icon="location-outline"
+                    title={
+                      gps.loading ? '현재 위치를 확인하고 있어요' : '현재 위치를 확인해 주세요'
+                    }
+                    description={gps.error ?? '위치 권한과 휴대폰 GPS를 확인해 주세요.'}
+                    actions={
                       <Button
-                        label="1km로 넓혀 보기"
-                        size="md"
-                        variant={filtered && lots.length > 0 ? 'outline' : 'primary'}
-                        onPress={() => changeRadius(1000)}
-                      />
-                    </>
-                  }
-                />
-              ) : (
-                <StateView
-                  icon="car-outline"
-                  title={
-                    // 서버 결과 자체가 비었는지, 앱 필터로 비었는지 구분한다(명세 5절).
-                    lots.length > 0 && openOnly
-                      ? '반경 1km 안에 지금 운영 중인\n주차장이 없어요'
-                      : lots.length > 0
-                        ? '반경 1km 안에 조건에 맞는\n주차장이 없어요'
-                        : '반경 1km 안에 주차장이 없어요'
-                  }
-                  description={
-                    lots.length > 0
-                      ? '필터를 바꾸거나 지도 앱에서 더 넓은 범위를 찾아보세요.'
-                      : expanded
-                        ? '500m 안에 없어 1km까지 찾았지만 없었어요. 지도 앱에서 더 넓은 범위를 찾아보세요.'
-                        : '지도 앱에서 더 넓은 범위를 찾아보세요.'
-                  }
-                  actions={
-                    <>
-                      {filtered && lots.length > 0 ? (
-                        <Button
-                          label="필터 초기화"
-                          size="md"
-                          onPress={() => {
-                            resetFilters();
-                          }}
-                        />
-                      ) : null}
-                      <Button
-                        label="지도 앱에서 주차장 검색"
+                        label="위치 다시 확인"
                         variant="outline"
                         size="md"
-                        onPress={() => void openMap()}
+                        onPress={() => void gps.refresh()}
                       />
-                    </>
-                  }
-                />
-              )
+                    }
+                  />
+                ) : loading ? (
+                  <View style={styles.loading}>
+                    <ActivityIndicator color={colors.primary} />
+                  </View>
+                ) : error === 'consent' ? (
+                  <StateView
+                    compact
+                    icon="location-outline"
+                    title="위치기반서비스 동의가 필요해요"
+                    description="주변 주차장을 찾으려면 위치기반서비스 이용약관에 동의해 주세요."
+                    actions={
+                      <Button
+                        label="동의하러 가기"
+                        size="md"
+                        onPress={() => void requireAgreement('LOCATION_SERVICE')}
+                      />
+                    }
+                  />
+                ) : error ? (
+                  <StateView
+                    compact
+                    icon="alert-circle-outline"
+                    title="주차장을 불러오지 못했어요"
+                    description="잠시 후 다시 시도해 주세요."
+                    actions={
+                      <Button
+                        label="다시 시도"
+                        variant="outline"
+                        size="md"
+                        onPress={() => setReloadKey((key) => key + 1)}
+                      />
+                    }
+                  />
+                ) : visible.length === 0 ? (
+                  radius === 500 ? (
+                    <StateView
+                      compact
+                      icon="car-outline"
+                      title={
+                        lots.length > 0
+                          ? '500m 안에 조건에 맞는\n주차장이 없어요'
+                          : '500m 안에 주차장이 없어요'
+                      }
+                      description={
+                        lots.length > 0
+                          ? '필터를 바꾸거나 반경을 1km로 넓혀 보세요.'
+                          : widerCount
+                            ? `1km로 넓히면 ${widerCount}곳을 볼 수 있어요.`
+                            : '반경을 1km로 넓혀 다시 찾아보세요.'
+                      }
+                      actions={
+                        <>
+                          {filtered && lots.length > 0 ? (
+                            <Button label="필터 초기화" size="md" onPress={resetFilters} />
+                          ) : null}
+                          <Button
+                            label="1km로 넓히기"
+                            size="md"
+                            variant={filtered && lots.length > 0 ? 'outline' : 'primary'}
+                            onPress={() => changeRadius(1000)}
+                          />
+                        </>
+                      }
+                    />
+                  ) : (
+                    <StateView
+                      compact
+                      icon="car-outline"
+                      title={
+                        // 서버 결과 자체가 비었는지, 앱 필터로 비었는지 구분한다(명세 5절).
+                        lots.length > 0 && openOnly
+                          ? '반경 1km 안에 지금 운영 중인\n주차장이 없어요'
+                          : lots.length > 0
+                            ? '반경 1km 안에 조건에 맞는\n주차장이 없어요'
+                            : '반경 1km 안에 주차장이 없어요'
+                      }
+                      description={
+                        lots.length > 0
+                          ? '필터를 바꾸거나 지도 앱에서 더 넓은 범위를 찾아보세요.'
+                          : '지도 앱에서 더 넓은 범위를 찾아보세요.'
+                      }
+                      actions={
+                        <>
+                          {filtered && lots.length > 0 ? (
+                            <Button
+                              label="필터 초기화"
+                              size="md"
+                              onPress={() => {
+                                resetFilters();
+                              }}
+                            />
+                          ) : null}
+                          <Button
+                            label="지도 앱에서 찾기"
+                            variant="outline"
+                            size="md"
+                            onPress={() => void openMap()}
+                          />
+                        </>
+                      }
+                    />
+                  )
+                ) : null}
+              </View>
             ) : (
               <>
-                {expanded ? (
-                  <AppText variant="caption" tone="body" style={styles.expandedNote}>
-                    500m 안에 없어 1km까지 찾았어요.
-                  </AppText>
-                ) : null}
                 {visible.map((lot, index) => (
                   <View
                     key={lot.id}
                     onLayout={(event) => {
-                      lotOffsets.current.set(lot.id, event.nativeEvent.layout.y);
+                      const { y, height } = event.nativeEvent.layout;
+                      lotOffsets.current.set(lot.id, y);
+                      // 상세를 펼친 줄은 기본 높이 계산에서 뺀다.
+                      if (index < 2 && expandedId !== lot.id) {
+                        setRowHeights((previous) => {
+                          if (Math.abs((previous[index] ?? 0) - height) < 0.5) return previous;
+                          const next: [number, number] = [previous[0], previous[1]];
+                          next[index] = height;
+                          return next;
+                        });
+                      }
                       if (pendingPinId.current === lot.id) scrollToPinnedLot();
                     }}
                   >
@@ -505,25 +530,12 @@ export function ParkingLotsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.mapBase },
   flex: { flex: 1 },
-  top: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-  },
-  basis: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: 44,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surface,
-    boxShadow: shadows.floating,
-  },
-  basisDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
-  sheetContent: { flex: 1, gap: spacing.lg },
+  sheetContent: { flex: 1, gap: spacing.md },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: touchTarget,
     gap: spacing.sm,
     paddingHorizontal: spacing.xl,
   },
@@ -554,8 +566,7 @@ const styles = StyleSheet.create({
   segmentSelected: { backgroundColor: colors.surface, boxShadow: shadows.raised },
   list: { flex: 1 },
   listContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
-  loading: { paddingVertical: spacing.xxxl },
-  expandedNote: { paddingTop: spacing.sm },
+  loading: { height: LOT_ROW_HEIGHT * 2, alignItems: 'center', justifyContent: 'center' },
   actionError: {
     position: 'absolute',
     top: '25%',
