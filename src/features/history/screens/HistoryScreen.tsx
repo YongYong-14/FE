@@ -20,8 +20,8 @@ type Filter = 'all' | AnalysisStatus;
 
 const filters: { value: Filter; label: string }[] = [
   { value: 'all', label: '전체' },
-  { value: 'level-1', label: '1단계' },
-  { value: 'level-2', label: '2단계' },
+  { value: 'level-1', label: '금지 구역' },
+  { value: 'level-2', label: '신고 다발' },
   { value: 'no-risk-found', label: analysisStatusLabel['no-risk-found'] },
   { value: 'insufficient-data', label: '판단 불가' },
   { value: 'failed', label: '분석 실패' },
