@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 
 import { describeError, isApiError } from '@/services';
 
@@ -7,7 +7,6 @@ import { useSession } from '../state/SessionProvider';
 import { AppText } from '@/shared/components/AppText';
 import { BrandLogo } from '@/shared/components/BrandLogo';
 import { Button } from '@/shared/components/Button';
-import { Icon } from '@/shared/components/Icon';
 import { Notice } from '@/shared/components/Notice';
 import { Screen } from '@/shared/components/Screen';
 import { useAsyncAction } from '@/shared/hooks/useAsyncAction';
@@ -36,7 +35,17 @@ export function LoginScreen() {
           <Button
             label={error ? '다시 시도하기' : '카카오로 시작하기'}
             variant={error ? 'primary' : 'kakao'}
-            leading={error ? undefined : <Icon name="chatbubble" color={colors.ink} size="md" />}
+            leading={
+              error ? undefined : (
+                <Image
+                  source={require('../../../../assets/auth/kakao-login-symbol.png')}
+                  style={styles.kakaoSymbol}
+                  resizeMode="contain"
+                  accessible={false}
+                  importantForAccessibility="no"
+                />
+              )
+            }
             onPress={() => {
               clearSessionNotice();
               void run(async () => {
@@ -97,6 +106,7 @@ const styles = StyleSheet.create({
   texts: { alignItems: 'center', gap: spacing.md },
   center: { textAlign: 'center' },
   bottom: { gap: spacing.lg },
+  kakaoSymbol: { width: 20, height: 20 },
   links: { paddingHorizontal: spacing.sm },
   link: { textDecorationLine: 'underline' },
 });
