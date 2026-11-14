@@ -3,16 +3,15 @@ import { useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText } from '@/shared/components/AppText';
-import { TabIcon } from '@/shared/components/TabIcon';
-import type { IconName } from '@/shared/components/Icon';
+import { TabIcon, type TabIconName } from '@/shared/components/TabIcon';
 import { colors } from '@/shared/theme/tokens';
 
-const tabs: { name: string; title: string; icon: IconName }[] = [
-  { name: 'home', title: '홈', icon: 'home-outline' },
-  { name: 'map', title: '지도', icon: 'map-outline' },
+const tabs: { name: string; title: string; icon: TabIconName }[] = [
+  { name: 'home', title: '홈', icon: 'home' },
+  { name: 'map', title: '지도', icon: 'map' },
   { name: 'parking-lots', title: '주변 주차장', icon: 'parking' },
-  { name: 'history', title: '기록', icon: 'time-outline' },
-  { name: 'mypage', title: '마이페이지', icon: 'person-outline' },
+  { name: 'history', title: '기록', icon: 'history' },
+  { name: 'mypage', title: '마이페이지', icon: 'mypage' },
 ];
 
 export default function TabLayout() {
@@ -22,6 +21,9 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        // 탭 전환은 살짝 밀리며 겹쳐 바뀐다. 보이지 않는 탭은 다시 그리지 않아 전환이 가벼워진다.
+        animation: 'shift',
+        freezeOnBlur: true,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
         tabBarStyle: {

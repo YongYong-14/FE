@@ -10,6 +10,7 @@ import { useSession } from '@/features/auth';
 import { AppProviders } from '@/providers/AppProviders';
 import { AppText } from '@/shared/components/AppText';
 import { Button } from '@/shared/components/Button';
+import { tabIconFont } from '@/shared/components/TabIcon';
 import { Screen } from '@/shared/components/Screen';
 import { BrandSplash } from '@/shared/components/BrandSplash';
 import { colors, fonts } from '@/shared/theme/tokens';
@@ -40,7 +41,12 @@ function RootNavigator() {
 
   return (
     <Stack
-      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}
+      // 로그인·온보딩과 본 화면 사이는 방향 없이 부드럽게 바뀐다.
+      screenOptions={{
+        headerShown: false,
+        animation: 'fade',
+        contentStyle: { backgroundColor: colors.background },
+      }}
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="terms" />
@@ -60,6 +66,7 @@ export default function RootLayout() {
     [fonts.bold]: require('../../assets/fonts/pretendard/Pretendard-Bold.otf'),
     [fonts.black]: require('../../assets/fonts/pretendard/Pretendard-Black.otf'),
     ...FontAwesome6.font,
+    ...tabIconFont,
   });
 
   useEffect(() => {
